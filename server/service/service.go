@@ -54,7 +54,7 @@ func (s *Service) GetFeed() any {
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
-		result, err := tx.Run(ctx, "match (p:Post) return p.id, p.kind, p.author, p.content, p.created_at limit 20;", nil)
+		result, err := tx.Run(ctx, "match (p:Post) optional match (r:Post)-[:REPLY]->(p) with p, count(r) as replyCnt order by replyCnt desc limit 20 return p.id, p.kind, p.author, p.content, p.created_at, replyCnt;", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -68,6 +68,7 @@ func (s *Service) GetFeed() any {
 				Pubkey:    record.Values[2].(string),
 				Content:   record.Values[3].(string),
 				CreatedAt: time.Unix(record.Values[4].(int64), 0),
+				Reply:     int(record.Values[5].(int64)),
 			}
 			posts = append(posts, post)
 		}
@@ -123,6 +124,17 @@ func (s *Service) StorePost(event *nostr.Event) error {
 				"Id":     event.ID,
 			}); err != nil {
 			return nil, err
+		}
+
+		// create reply relation
+		refs := event.Tags.GetAll([]string{"e"})
+		if len(refs) > 0 {
+			ref := refs[0]
+			tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId create (p)-[:REPLY]->(r);",
+				map[string]any{
+					"Id":    event.ID,
+					"RefId": ref.Value(),
+				})
 		}
 
 		return nil, nil
