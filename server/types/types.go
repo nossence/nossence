@@ -3,13 +3,13 @@ package types
 import "time"
 
 type Post struct {
-	Id        string
-	Kind      int
-	Author    string
-	Content   string
-	CreatedAt time.Time
+	Id        string    `json:"id"`
+	Kind      int       `json:"kind"`
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type User struct {
-	Pubkey string
+	Pubkey string `json:"pubkey"`
 }

@@ -3,20 +3,25 @@ package database
 import (
 	"context"
 
+	"github.com/dyng/nosdaily/types"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
 type Neo4jDb struct {
+	config *types.Config
 	driver neo4j.DriverWithContext
 }
 
-func NewNeo4jDb() *Neo4jDb {
-	return &Neo4jDb{}
+func NewNeo4jDb(config *types.Config) *Neo4jDb {
+	return &Neo4jDb{
+		config: config,
+	}
 }
 
 func (db *Neo4jDb) Connect() error {
-	// TODO: read username & password from config
-	driver, err := neo4j.NewDriverWithContext("bolt://localhost:7687", neo4j.BasicAuth("neo4j", "12345678", ""))
+	conf := db.config.Neo4j
+
+	driver, err := neo4j.NewDriverWithContext(conf.Url, neo4j.BasicAuth(conf.Username, conf.Password, ""))
 	if err != nil {
 		return err
 	}

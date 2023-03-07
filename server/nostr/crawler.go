@@ -2,10 +2,10 @@ package nostr
 
 import (
 	"context"
-	"log"
 
 	"github.com/dyng/nosdaily/service"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 type Crawler struct {
@@ -21,8 +21,11 @@ func NewCrawler(service *service.Service) *Crawler {
 }
 
 func (c *Crawler) AddRelay(url string) {
-	// TODO: handle error
-	c.subscribe(url)
+	log.Info("Adding a relay server", "url", url)
+	err := c.subscribe(url)
+	if err != nil {
+		log.Error("Failed to subscribe to relay", "url", url, "err", err)
+	}
 }
 
 func (c *Crawler) subscribe(url string) error {
@@ -40,10 +43,10 @@ func (c *Crawler) subscribe(url string) error {
 
 	go func() {
 		for ev := range sub.Events {
-			log.Printf("Received event: id=%s, kind=%d, created_at=%s\n", ev.ID, ev.Kind, ev.CreatedAt)
+			log.Debug("Received event", "id", ev.ID, "kind", ev.Kind, "author", ev.PubKey, "created_at", ev.CreatedAt)
 			err := c.service.StoreEvent(ev)
 			if err != nil {
-				log.Printf("Error storing event: %v\n", err)
+				log.Error("Failed to store event", "event", ev, "err", err)
 			}
 		}
 	}()

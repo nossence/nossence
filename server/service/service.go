@@ -2,26 +2,44 @@ package service
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/dyng/nosdaily/database"
 	"github.com/dyng/nosdaily/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
 type Service struct {
-	neo4j *database.Neo4jDb
+	config *types.Config
+	neo4j  *database.Neo4jDb
 }
 
-func NewService(neo4j *database.Neo4jDb) *Service {
+func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
 	return &Service{
-		neo4j: neo4j,
+		config: config,
+		neo4j:  neo4j,
 	}
 }
 
-func (s *Service) GetFeed() []types.Post {
+func (s *Service) GetFeed() any {
+	type feedEntry struct {
+		Id        string    `json:"event_id"`
+		Kind      int       `json:"kind"`
+		Pubkey    string    `json:"pubkey"`
+		Content   string    `json:"content"`
+		CreatedAt time.Time `json:"created_at"`
+		Summary   string    `json:"summary"`
+		Title     string    `json:"title"`
+		Image     string    `json:"image"`
+		Like      int       `json:"like"`
+		Repost    int       `json:"repost"`
+		Reply     int       `json:"reply"`
+		Zap       int       `json:"zap"`
+		Relay     []string  `json:"relay"`
+	}
+
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
@@ -30,14 +48,14 @@ func (s *Service) GetFeed() []types.Post {
 			return nil, err
 		}
 
-		posts := make([]types.Post, 0)
+		posts := make([]feedEntry, 0)
 		for result.Next(ctx) {
 			record := result.Record()
-			post := types.Post{
-				Id: record.Values[0].(string),
-				Kind: int(record.Values[1].(int64)),
-				// Author: record.Values[2].(string),
-				Content: record.Values[3].(string),
+			post := feedEntry{
+				Id:        record.Values[0].(string),
+				Kind:      int(record.Values[1].(int64)),
+				Pubkey:    record.Values[2].(string),
+				Content:   record.Values[3].(string),
 				CreatedAt: time.Unix(record.Values[4].(int64), 0),
 			}
 			posts = append(posts, post)
@@ -46,11 +64,10 @@ func (s *Service) GetFeed() []types.Post {
 	})
 
 	if err != nil {
-		log.Printf("Error getting feed: %v\n", err)
+		log.Error("Failed to get feed", "err", err)
 		return nil
 	} else {
-		log.Printf("Get feed: %v\n", posts)
-		return posts.([]types.Post)
+		return posts
 	}
 }
 
@@ -66,22 +83,22 @@ func (s *Service) StoreEvent(event *nostr.Event) error {
 		}
 		return s.StorePost(post)
 	default:
-		// TODO: print warning
+		log.Warn("Unsupported event kind", "kind", event.Kind)
 		return nil
 	}
 }
 
 func (s *Service) StorePost(post types.Post) error {
-	log.Printf("Store post: %v\n", post)
+	log.Debug("Storing post", "id", post.Id, "kind", post.Kind, "author", post.Author, "created_at", post.CreatedAt)
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
-		_, err:= tx.Run(context.Background(), "create (p:Post {id: $Id, kind: $Kind, content: $Content, created_at: $CreatedAt});",
-		map[string]any{
-			"Id":        post.Id,
-			"Kind":      post.Kind,
-			"Author":    post.Author,
-			"Content":   post.Content,
-			"CreatedAt": post.CreatedAt.Unix(),
-		})
+		_, err := tx.Run(context.Background(), "create (p:Post {id: $Id, kind: $Kind, author: $Author, content: $Content, created_at: $CreatedAt});",
+			map[string]any{
+				"Id":        post.Id,
+				"Kind":      post.Kind,
+				"Author":    post.Author,
+				"Content":   post.Content,
+				"CreatedAt": post.CreatedAt.Unix(),
+			})
 		return nil, err
 	})
 	return err
