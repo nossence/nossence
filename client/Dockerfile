@@ -8,6 +8,8 @@ RUN npm i
 
 COPY . .
 
+ARG NEXT_PUBLIC_API_BASE_URI
+
 RUN npm run build
 
 FROM node:lts-alpine3.17
