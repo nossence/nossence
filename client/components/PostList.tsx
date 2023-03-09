@@ -8,7 +8,7 @@ export default function PostList() {
     <div className="post-list">
       {posts && posts.map((post) => {
         return (
-          <PostItem post={post} onLike={onLike} />
+          <PostItem key={post.event_id} post={post} onLike={onLike} />
         )
       })}
     </div>
