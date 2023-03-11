@@ -26,10 +26,10 @@ func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
 func (s *Service) InitDatabase() error {
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
-		if _, err := tx.Run(ctx, "CREATE CONSTRAINT IF NOT EXISTS post_id_uniq FOR (p:Post) REQUIRE p.id IS UNIQUE;", nil); err != nil {
+		if _, err := tx.Run(ctx, "CREATE CONSTRAINT post_id_uniq IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE;", nil); err != nil {
 			return nil, err
 		}
-		if _, err := tx.Run(ctx, "CREATE CONSTRAINT IF NOT EXISTS user_pk_uniq FOR (u:User) REQUIRE u.pubkey IS UNIQUE;", nil); err != nil {
+		if _, err := tx.Run(ctx, "CREATE CONSTRAINT user_pk_uniq IF NOT EXISTS FOR (u:User) REQUIRE u.pubkey IS UNIQUE;", nil); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -93,6 +93,8 @@ func (s *Service) StoreEvent(event *nostr.Event) error {
 		return s.StorePost(event)
 	case 7:
 		return s.StoreLike(event)
+	case 3:
+		return s.StoreContact(event)
 	default:
 		log.Warn("Unsupported event kind", "kind", event.Kind)
 		return nil
@@ -112,7 +114,7 @@ func (s *Service) StorePost(event *nostr.Event) error {
 		refs := event.Tags.GetAll([]string{"e"})
 		if len(refs) > 0 {
 			ref := refs[0]
-			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId create (p)-[:REPLY]->(r);",
+			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:REPLY]->(r);",
 				map[string]any{
 					"Id":    event.ID,
 					"RefId": ref.Value(),
@@ -140,10 +142,40 @@ func (s *Service) StoreLike(event *nostr.Event) error {
 		refs := event.Tags.GetAll([]string{"e"})
 		if len(refs) > 0 {
 			ref := refs[0]
-			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId create (p)-[:LIKE]->(r);",
+			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:LIKE]->(r);",
 				map[string]any{
 					"Id":    event.ID,
 					"RefId": ref.Value(),
+				}); err != nil {
+				return nil, err
+			}
+		}
+
+		return nil, nil
+	})
+
+	return err
+}
+
+func (s *Service) StoreContact(event *nostr.Event) error {
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		// delete old follow relations
+		if _, err := tx.Run(ctx, "match (u:User {pubkey: $Pubkey})-[r:FOLLOW]->() delete r;",
+			map[string]any{
+				"Pubkey": event.PubKey,
+			}); err != nil {
+			return nil, err
+		}
+
+		// create new follow relations
+		tags := event.Tags.GetAll([]string{"p"})
+		for _, pTag := range tags {
+			if _, err := tx.Run(ctx, "merge (u:User {pubkey: $Pubkey}) merge (p:User {pubkey: $P}) merge (u)-[:FOLLOW]->(p);",
+				map[string]any{
+					"Pubkey": event.PubKey,
+					"P":      pTag.Value(),
 				}); err != nil {
 				return nil, err
 			}
@@ -174,7 +206,7 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 		return err
 	}
 
-	if _, err := tx.Run(ctx, "match (u:User), (p:Post) where u.pubkey = $Pubkey and p.id = $Id create (u)-[:CREATE]->(p);",
+	if _, err := tx.Run(ctx, "match (u:User), (p:Post) where u.pubkey = $Pubkey and p.id = $Id merge (u)-[:CREATE]->(p);",
 		map[string]any{
 			"Pubkey": event.PubKey,
 			"Id":     event.ID,
