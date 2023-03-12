@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,20 +18,27 @@ func getRelayURIs() []string {
 func getIdentity() (sk, pub string) {
 	myPrivateKey := os.Getenv("NOSTR_PRIVATE_KEY")
 
-	_, val, err := nip19.Decode(myPrivateKey)
+	sk, err := DecodeNsec(myPrivateKey)
 	if err != nil {
-		return "", ""
-	}
-	if sk, ok := val.(string); ok {
-		pub, err := nostr.GetPublicKey(sk)
-		if err != nil {
-			return "", ""
-		}
-
-		return sk, pub
+		return
 	}
 
-	return "", ""
+	pub, err = nostr.GetPublicKey(sk)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func getReceiverPub() string {
+	receiverPub := os.Getenv("NOSTR_RECEIVER_PUB")
+	pub, err := DecodeNpub(receiverPub)
+	if err != nil {
+		return ""
+	}
+
+	return pub
 }
 
 func TestNewClient(t *testing.T) {
@@ -93,7 +99,7 @@ func TestSendMessage(t *testing.T) {
 
 	sk, _ := getIdentity()
 	msg := "foo"
-	receiverPub := ""
+	receiverPub := getReceiverPub()
 	err = client.SendMessage(context.Background(), sk, receiverPub, msg)
 	assert.NoError(t, err)
 }

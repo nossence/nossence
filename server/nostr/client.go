@@ -7,10 +7,45 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
+	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
 type Client struct {
 	Relays []*nostr.Relay
+}
+
+func DecodeNsec(nsec string) (string, error) {
+	prefix, val, err := nip19.Decode(nsec)
+	if err != nil {
+		return "", err
+	}
+
+	if prefix != "nsec" {
+		return "", fmt.Errorf("invalid nsec prefix: %s", prefix)
+	}
+
+	if pub, ok := val.(string); ok {
+		return pub, nil
+	}
+
+	return "", fmt.Errorf("invalid nsec value: %v", val)
+}
+
+func DecodeNpub(npub string) (string, error) {
+	prefix, val, err := nip19.Decode(npub)
+	if err != nil {
+		return "", err
+	}
+
+	if prefix != "npub" {
+		return "", fmt.Errorf("invalid npub prefix: %s", prefix)
+	}
+
+	if pub, ok := val.(string); ok {
+		return pub, nil
+	}
+
+	return "", fmt.Errorf("invalid npub value: %v", val)
 }
 
 func NewClient(ctx context.Context, relays []string) (*Client, error) {
@@ -85,7 +120,7 @@ func (c *Client) SendMessage(ctx context.Context, sk, receiverPub, msg string) e
 
 	sharedKey, err := nip04.ComputeSharedSecret(receiverPub, sk)
 	if err != nil {
-		return nil
+		return fmt.Errorf("invalid receiver public key: %s", receiverPub)
 	}
 
 	content, err := nip04.Encrypt(msg, sharedKey)
