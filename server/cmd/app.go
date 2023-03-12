@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 
+	"github.com/dyng/nosdaily/bot"
 	"github.com/dyng/nosdaily/database"
 	"github.com/dyng/nosdaily/nostr"
 	"github.com/dyng/nosdaily/service"
@@ -20,6 +22,7 @@ type Application struct {
 	neo4j   *database.Neo4jDb
 	service *service.Service
 	crawler *nostr.Crawler
+	bot     *bot.BotApplication
 }
 
 type response struct {
@@ -37,11 +40,13 @@ func NewApplication() *Application {
 	neo4j := database.NewNeo4jDb(config)
 	service := service.NewService(config, neo4j)
 	crawler := nostr.NewCrawler(service)
+	bot := bot.NewBotApplication(config)
 	return &Application{
 		config:  config,
 		neo4j:   neo4j,
 		service: service,
 		crawler: crawler,
+		bot:     bot,
 	}
 }
 
@@ -57,6 +62,11 @@ func (app *Application) Run() {
 	for _, v := range app.config.Crawler.Relays {
 		app.crawler.AddRelay(v)
 	}
+
+	// start bot app
+	go func() {
+		app.bot.Run(context.Background())
+	}()
 
 	// start http server
 	app.listenAndServe()

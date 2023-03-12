@@ -1,5 +1,10 @@
 package types
 
+type BotConfig struct {
+	SK     string
+	Relays []string
+}
+
 type CrawlerConfig struct {
 	Relays []string
 }
@@ -19,4 +24,5 @@ type Config struct {
 	Log     LogConfig
 	Neo4j   Neo4jConfig
 	Crawler CrawlerConfig
+	Bot     BotConfig
 }

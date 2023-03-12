@@ -75,8 +75,25 @@ func TestListen(t *testing.T) {
 }
 
 // bot should generate a sub account and store it with a reference to user
-func TestGenerateSubAccount(t *testing.T) {
-	t.Skip("not implemented yet")
+func TestGetOrCreateSubSK(t *testing.T) {
+	client, err := n.NewClient(context.Background(), getRelayURIs())
+	assert.NoError(t, err)
+
+	bot, err := NewBot(context.Background(), client, botSK)
+	assert.NoError(t, err)
+
+	userPub, err := nostr.GetPublicKey(userSK)
+	assert.NoError(t, err)
+
+	subSK, created, err := bot.GetOrCreateSubSK(context.Background(), userPub)
+	assert.NoError(t, err)
+	assert.True(t, created)
+	assert.NotNil(t, subSK)
+
+	subSK, created, err = bot.GetOrCreateSubSK(context.Background(), userPub)
+	assert.NoError(t, err)
+	assert.False(t, created)
+	assert.NotNil(t, subSK)
 }
 
 // bot should send a welcome message to user mentioning the sub account
