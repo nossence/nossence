@@ -58,7 +58,7 @@ func TestSubscribe(t *testing.T) {
 	}}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	sub := client.Relays[0].Subscribe(ctx, filters)
+	subs := client.Subscribe(ctx, filters)
 
 	go func() {
 		time.Sleep(1 * time.Second)
@@ -66,9 +66,11 @@ func TestSubscribe(t *testing.T) {
 	}()
 
 	events := []*nostr.Event{}
-	for ev := range sub.Events {
-		t.Logf("event: %+v", ev)
-		events = append(events, ev)
+	for _, sub := range subs {
+		for ev := range sub.Events {
+			t.Logf("event: %+v", ev)
+			events = append(events, ev)
+		}
 	}
 
 	assert.GreaterOrEqual(t, len(events), 1)

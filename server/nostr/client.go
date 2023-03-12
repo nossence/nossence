@@ -11,7 +11,7 @@ import (
 )
 
 type Client struct {
-	Relays []*nostr.Relay
+	Relays map[string]*nostr.Relay
 }
 
 func DecodeNsec(nsec string) (string, error) {
@@ -48,14 +48,14 @@ func DecodeNpub(npub string) (string, error) {
 	return "", fmt.Errorf("invalid npub value: %v", val)
 }
 
-func NewClient(ctx context.Context, relays []string) (*Client, error) {
-	rs := []*nostr.Relay{}
-	for _, relay := range relays {
-		r, err := nostr.RelayConnect(ctx, relay)
+func NewClient(ctx context.Context, uris []string) (*Client, error) {
+	rs := map[string]*nostr.Relay{}
+	for _, uri := range uris {
+		r, err := nostr.RelayConnect(ctx, uri)
 		if err != nil {
 			return nil, err
 		}
-		rs = append(rs, r)
+		rs[uri] = r
 	}
 
 	return &Client{
@@ -63,17 +63,21 @@ func NewClient(ctx context.Context, relays []string) (*Client, error) {
 	}, nil
 }
 
-// func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) (nostr.Subscription, error) {
-// 	sub := c.Subscribe(ctx, filters)
-// 	return sub.Events, nil
-// }
+func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) map[string]*nostr.Subscription {
+	subs := map[string]*nostr.Subscription{}
+	for uri, r := range c.Relays {
+		sub := r.Subscribe(ctx, filters)
+		subs[uri] = sub
+	}
+	return subs
+}
 
 // Publish a signed event to all relays
 func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
-	for _, r := range c.Relays {
+	for relay, r := range c.Relays {
 		status := r.Publish(ctx, ev)
 		if status == nostr.PublishStatusFailed {
-			return fmt.Errorf("publish failed")
+			return fmt.Errorf("publish failed at relay: %s", relay)
 		}
 	}
 	return nil
