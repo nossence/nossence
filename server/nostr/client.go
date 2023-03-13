@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
@@ -53,7 +54,8 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 	for _, uri := range uris {
 		r, err := nostr.RelayConnect(ctx, uri)
 		if err != nil {
-			return nil, err
+			log.Warn("failed to connect to relay, skipping...", "uri", uri, "err", err)
+			continue
 		}
 		rs[uri] = r
 	}
@@ -74,10 +76,11 @@ func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) map[stri
 
 // Publish a signed event to all relays
 func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
-	for relay, r := range c.Relays {
+	for uri, r := range c.Relays {
 		status := r.Publish(ctx, ev)
 		if status == nostr.PublishStatusFailed {
-			return fmt.Errorf("publish failed at relay: %s", relay)
+			log.Warn("failed to publish event to relay, skipping...", "uri", uri)
+			return nil
 		}
 	}
 	return nil
