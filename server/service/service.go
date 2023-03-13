@@ -8,6 +8,7 @@ import (
 	"github.com/dyng/nosdaily/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
+	decodepay "github.com/nbd-wtf/ln-decodepay"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
@@ -99,6 +100,8 @@ func (s *Service) StoreEvent(event *nostr.Event) error {
 		return s.StoreLike(event)
 	case 3:
 		return s.StoreContact(event)
+	case 9735:
+		return s.StoreZap(event)
 	default:
 		log.Warn("Unsupported event kind", "kind", event.Kind)
 		return nil
@@ -183,6 +186,46 @@ func (s *Service) StoreContact(event *nostr.Event) error {
 				}); err != nil {
 				return nil, err
 			}
+		}
+
+		return nil, nil
+	})
+
+	return err
+}
+
+func (s *Service) StoreZap(event *nostr.Event) error {
+	// decode zap amount
+	bolt11 := event.Tags.GetLast([]string{"bolt11"})
+	invoice, err := decodepay.Decodepay(bolt11.Value())
+	if err != nil {
+		return err
+	}
+	amount := invoice.MSatoshi / 1000
+
+	_, err = s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		// exit if not a zap to a post
+		refs := event.Tags.GetAll([]string{"e"})
+		if len(refs) == 0 {
+			return nil, nil
+		}
+
+		// create user & post
+		if err := s.saveUserAndPost(ctx, tx, event); err != nil {
+			return nil, err
+		}
+
+		// create zap relation
+		ref := refs[0]
+		if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:ZAP {amount: $Amount}]->(r);",
+			map[string]any{
+				"Id":     event.ID,
+				"RefId":  ref.Value(),
+				"Amount": amount,
+			}); err != nil {
+			return nil, err
 		}
 
 		return nil, nil
