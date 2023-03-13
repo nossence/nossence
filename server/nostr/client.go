@@ -65,13 +65,23 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) map[string]*nostr.Subscription {
+func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event {
 	subs := map[string]*nostr.Subscription{}
 	for uri, r := range c.Relays {
 		sub := r.Subscribe(ctx, filters)
 		subs[uri] = sub
 	}
-	return subs
+
+	ch := make(chan nostr.Event)
+	go func(chan<- nostr.Event, map[string]*nostr.Subscription) {
+		for _, sub := range subs {
+			for e := range sub.Events {
+				ch <- *e
+			}
+		}
+	}(ch, subs)
+
+	return ch
 }
 
 // Publish a signed event to all relays

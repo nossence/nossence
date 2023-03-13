@@ -58,22 +58,13 @@ func TestSubscribe(t *testing.T) {
 	}}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	subs := client.Subscribe(ctx, filters)
+	c := client.Subscribe(ctx, filters)
 
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel()
-	}()
+	defer cancel()
 
-	events := []*nostr.Event{}
-	for _, sub := range subs {
-		for ev := range sub.Events {
-			t.Logf("event: %+v", ev)
-			events = append(events, ev)
-		}
-	}
-
-	assert.GreaterOrEqual(t, len(events), 1)
+	ev := <-c
+	t.Logf("event: %v", ev)
+	assert.NotNil(t, ev)
 }
 
 func TestPublish(t *testing.T) {
