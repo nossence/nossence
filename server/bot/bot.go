@@ -7,15 +7,13 @@ import (
 
 	n "github.com/dyng/nosdaily/nostr"
 	"github.com/dyng/nosdaily/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
-var userSubStore map[string]string
-
-func init() {
-	userSubStore = make(map[string]string)
-}
+var botlog = log.New("module", "bot")
+var userSubStore = make(map[string]string)
 
 type BotApplication struct {
 	bot    *Bot
@@ -50,10 +48,10 @@ func NewBotApplication(config *types.Config) *BotApplication {
 func (ba *BotApplication) Run(ctx context.Context) error {
 	c, err := ba.bot.Listen(ctx)
 	if err != nil {
-		panic(err)
+		botlog.Crit("cannot listen to subscribe messages", "err", err)
 	}
 
-	fmt.Println("[bot] Start listening to subscribe messages...")
+	botlog.Info("start listening to subscribe messages...")
 
 	done := make(chan struct{})
 	defer close(done)
@@ -61,10 +59,19 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	go func(c <-chan nostr.Event) {
 		for ev := range c {
 			if strings.Contains(ev.Content, "#subscribe") {
-				fmt.Printf("[bot] Preparing channel for %s\n", ev.PubKey)
-				ba.bot.GetOrCreateSubSK(ctx, ev.PubKey)
-				ba.bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
-				fmt.Printf("[bot] Channel has been created for %s\n", ev.PubKey)
+				botlog.Info("preparing channel for user", "pubkey", ev.PubKey)
+				_, new, err := ba.bot.GetOrCreateSubSK(ctx, ev.PubKey)
+				if err != nil {
+					botlog.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
+					continue
+				}
+
+				if new {
+					ba.bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
+					botlog.Info("sent welcome message to new user", "pubkey", ev.PubKey)
+				} else {
+					botlog.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
+				}
 			}
 		}
 
@@ -72,7 +79,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	}(c)
 
 	<-done
-	fmt.Println("[bot] Bye")
+	botlog.Info("bot exiting...")
 	return nil
 }
 
@@ -102,6 +109,7 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 }
 
 func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, bool, error) {
+	// TODO: lock in case there're multiple attempts on the same pubkey
 	// TODO: use a persistent storage for subSK
 	if subSK, ok := userSubStore[userPub]; ok {
 		return subSK, false, nil
