@@ -16,7 +16,7 @@ type Service struct {
 	neo4j  *database.Neo4jDb
 }
 
-type ServiceImpl interface {
+type IService interface {
 	GetFeed() any
 }
 

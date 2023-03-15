@@ -15,7 +15,7 @@ type Client struct {
 	Relays map[string]*nostr.Relay
 }
 
-type ClientImpl interface {
+type IClient interface {
 	Repost(ctx context.Context, sk, id, author string) error
 }
 

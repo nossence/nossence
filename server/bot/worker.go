@@ -10,11 +10,11 @@ import (
 )
 
 type Worker struct {
-	client  n.ClientImpl
-	service service.ServiceImpl
+	client  n.IClient
+	service service.IService
 }
 
-func NewWorker(ctx context.Context, client n.ClientImpl, service service.ServiceImpl) (*Worker, error) {
+func NewWorker(ctx context.Context, client n.IClient, service service.IService) (*Worker, error) {
 	return &Worker{
 		client:  client,
 		service: service,
@@ -30,15 +30,17 @@ func (w *Worker) Run(ctx context.Context, userPub, subSK string, timeRange time.
 		return nil
 	}
 
+	var eventIds []string
 	if posts, ok := feed.([]service.FeedEntry); ok {
 		for _, post := range posts {
 			err := w.client.Repost(ctx, subSK, post.Id, post.Pubkey)
 			if err != nil {
 				log.Warn("failed to repost event", "id", post.Id, "err", err)
 			}
+			eventIds = append(eventIds, post.Id)
 		}
 	}
 
-	log.Info("reposted feed", "userPub", userPub)
+	log.Info("reposted feed", "userPub", userPub, "eventIds", eventIds)
 	return nil
 }
