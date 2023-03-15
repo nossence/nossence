@@ -56,6 +56,7 @@ func (app *Application) Run() {
 	if err != nil {
 		log.Crit("Failed to connect to neo4j", "err", err)
 	}
+	app.service.InitDatabase()
 	defer app.neo4j.Close()
 
 	// add relays

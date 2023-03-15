@@ -43,11 +43,22 @@ type FeedEntry struct {
 	Relay     []string  `json:"relay"`
 }
 
+func (s *Service) InitDatabase() error {
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+		tx.Run(ctx, "CREATE CONSTRAINT post_id_uniq FOR (p:Post) REQUIRE p.id IS UNIQUE;", nil)
+		tx.Run(ctx, "CREATE CONSTRAINT user_pk_uniq FOR (u:User) REQUIRE u.pubkey IS UNIQUE;", nil)
+		return nil, nil
+	})
+
+	return err
+}
+
 func (s *Service) GetFeed() any {
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
-		result, err := tx.Run(ctx, "match (p:Post) return p.id, p.kind, p.author, p.content, p.created_at;", nil)
+		result, err := tx.Run(ctx, "match (p:Post) return p.id, p.kind, p.author, p.content, p.created_at limit 20;", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -78,32 +89,48 @@ func (s *Service) GetFeed() any {
 func (s *Service) StoreEvent(event *nostr.Event) error {
 	switch event.Kind {
 	case 1, 30023:
-		post := types.Post{
-			Id:        event.ID,
-			Kind:      event.Kind,
-			Author:    event.PubKey,
-			Content:   event.Content,
-			CreatedAt: event.CreatedAt,
-		}
-		return s.StorePost(post)
+		return s.StorePost(event)
 	default:
 		log.Warn("Unsupported event kind", "kind", event.Kind)
 		return nil
 	}
 }
 
-func (s *Service) StorePost(post types.Post) error {
-	log.Debug("Storing post", "id", post.Id, "kind", post.Kind, "author", post.Author, "created_at", post.CreatedAt)
+func (s *Service) StorePost(event *nostr.Event) error {
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
-		_, err := tx.Run(context.Background(), "create (p:Post {id: $Id, kind: $Kind, author: $Author, content: $Content, created_at: $CreatedAt});",
+		ctx := context.Background()
+
+		// create user
+		if _, err := tx.Run(ctx, "merge (u:User {pubkey: $Pubkey});",
 			map[string]any{
-				"Id":        post.Id,
-				"Kind":      post.Kind,
-				"Author":    post.Author,
-				"Content":   post.Content,
-				"CreatedAt": post.CreatedAt.Unix(),
-			})
-		return nil, err
+				"Pubkey": event.PubKey,
+			}); err != nil {
+			return nil, err
+		}
+
+		// create post
+		if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, content: $Content, created_at: $CreatedAt});",
+			map[string]any{
+				"Id":        event.ID,
+				"Kind":      event.Kind,
+				"Author":    event.PubKey,
+				"Content":   event.Content,
+				"CreatedAt": event.CreatedAt.Unix(),
+			}); err != nil {
+			return nil, err
+		}
+
+		// create relation
+		if _, err := tx.Run(ctx, "match (u:User), (p:Post) where u.pubkey = $Pubkey and p.id = $Id create (u)-[:CREATE]->(p);",
+			map[string]any{
+				"Pubkey": event.PubKey,
+				"Id":     event.ID,
+			}); err != nil {
+			return nil, err
+		}
+
+		return nil, nil
 	})
+
 	return err
 }
