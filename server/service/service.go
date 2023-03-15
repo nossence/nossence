@@ -34,14 +34,7 @@ type FeedEntry struct {
 	Pubkey    string    `json:"pubkey"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
-	Summary   string    `json:"summary"`
-	Title     string    `json:"title"`
-	Image     string    `json:"image"`
-	Like      int       `json:"like"`
-	Repost    int       `json:"repost"`
-	Reply     int       `json:"reply"`
-	Zap       int       `json:"zap"`
-	Relay     []string  `json:"relay"`
+	Score     int       `json:"score"`
 }
 
 func (s *Service) InitDatabase() error {
@@ -59,11 +52,17 @@ func (s *Service) InitDatabase() error {
 	return err
 }
 
-func (s *Service) GetFeed() any {
+func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry {
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
-		result, err := tx.Run(ctx, "match (p:Post) optional match (r:Post)-[:REPLY]->(p) with p, count(r) as replyCnt order by replyCnt desc limit 20 return p.id, p.kind, p.author, p.content, p.created_at, replyCnt;", nil)
+		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.content, p.created_at, score;",
+			map[string]any{
+				"Start": start.Unix(),
+				"End":   end.Unix(),
+				"Limit": limit,
+			})
+
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +76,7 @@ func (s *Service) GetFeed() any {
 				Pubkey:    record.Values[2].(string),
 				Content:   record.Values[3].(string),
 				CreatedAt: time.Unix(record.Values[4].(int64), 0),
-				Reply:     int(record.Values[5].(int64)),
+				Score:     int(record.Values[5].(int64)),
 			}
 			posts = append(posts, post)
 		}
@@ -88,13 +87,13 @@ func (s *Service) GetFeed() any {
 		log.Error("Failed to get feed", "err", err)
 		return nil
 	} else {
-		return posts
+		return posts.([]FeedEntry)
 	}
 }
 
 func (s *Service) StoreEvent(event *nostr.Event) error {
 	switch event.Kind {
-	case 1, 30023:
+	case 1:
 		return s.StorePost(event)
 	case 7:
 		return s.StoreLike(event)
