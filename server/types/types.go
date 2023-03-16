@@ -13,3 +13,10 @@ type Post struct {
 type User struct {
 	Pubkey string `json:"pubkey"`
 }
+
+type Subscriber struct {
+	Pubkey         string
+	ChannelSecret  string
+	SubscribedAt   time.Time
+	UnsubscribedAt time.Time
+}

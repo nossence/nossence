@@ -1,0 +1,18 @@
+{
+  "log": {
+		"level": "info",
+		"path": "console"
+	},
+	"neo4j": {
+		"url": "bolt://localhost:7687",
+		"username": "neo4j",
+		"password": "12345678"
+	},
+	"crawler": {
+		"relays": ["wss://relay.damus.io"]
+	},
+	"bot": {
+		"sk": "PUT_YOUR_HEX_SECRET_KEY_HERE",
+		"relays": ["wss://relay.damus.io"]
+	}
+}

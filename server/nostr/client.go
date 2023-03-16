@@ -11,6 +11,8 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
+var logger = log.New("module", "nostr")
+
 type Client struct {
 	Relays map[string]*nostr.Relay
 }
@@ -72,6 +74,7 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event {
 	subs := map[string]*nostr.Subscription{}
 	for uri, r := range c.Relays {
+		logger.Info("subscribing to relay", "uri", uri)
 		sub := r.Subscribe(ctx, filters)
 		subs[uri] = sub
 	}
