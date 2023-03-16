@@ -1,0 +1,18 @@
+{
+  "log": {
+		"level": "info",
+		"path": "console"
+	},
+	"neo4j": {
+		"url": "bolt://neo4j:7687",
+		"username": "neo4j",
+		"password": "1234567"
+	},
+	"crawler": {
+		"relays": ["ws://relay:8080"]
+	},
+	"bot": {
+		"sk": "PUT_YOUR_HEX_SECRET_KEY_HERE",
+		"relays": ["ws://relay:8080"]
+	}
+}
