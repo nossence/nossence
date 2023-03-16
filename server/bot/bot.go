@@ -19,15 +19,15 @@ var logger = log.New("module", "bot")
 var userSubStore = make(map[string]string)
 
 type BotApplication struct {
-	bot    *Bot
+	Bot    *Bot
 	config *types.Config
-	worker *Worker
+	Worker *Worker
 }
 
 type Bot struct {
 	client  *n.Client
 	service *service.Service
-	sk      string
+	SK      string
 	pub     string
 }
 
@@ -50,14 +50,14 @@ func NewBotApplication(config *types.Config, service *service.Service) *BotAppli
 	}
 
 	return &BotApplication{
-		bot:    bot,
+		Bot:    bot,
 		config: config,
-		worker: worker,
+		Worker: worker,
 	}
 }
 
 func (ba *BotApplication) Run(ctx context.Context) error {
-	c, err := ba.bot.Listen(ctx)
+	c, err := ba.Bot.Listen(ctx)
 	if err != nil {
 		logger.Crit("cannot listen to subscribe messages", "err", err)
 	}
@@ -72,21 +72,21 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 			logger.Info("received event", "event", ev.Content)
 			if strings.Contains(ev.Content, "#subscribe") {
 				logger.Info("preparing channel for user", "pubkey", ev.PubKey)
-				_, new, err := ba.bot.GetOrCreateSubSK(ctx, ev.PubKey)
+				_, new, err := ba.Bot.GetOrCreateSubSK(ctx, ev.PubKey)
 				if err != nil {
 					logger.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
 					continue
 				}
 
 				if new {
-					ba.bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
+					ba.Bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
 					logger.Info("sent welcome message to new user", "pubkey", ev.PubKey)
 				} else {
 					logger.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
 				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
 				logger.Warn("unsubscribing user", "pubkey", ev.PubKey)
-				ba.bot.RemoveSubSK(ctx, ev.PubKey)
+				ba.Bot.RemoveSubSK(ctx, ev.PubKey)
 			}
 		}
 
@@ -97,7 +97,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	cr.AddFunc("0 * * * *", func() {
 		logger.Info("running hourly cron job")
 		for userPub, subSK := range userSubStore {
-			ba.worker.Run(ctx, userPub, subSK, time.Hour, 10)
+			ba.Worker.Run(ctx, userPub, subSK, time.Hour, 10)
 		}
 	})
 
@@ -115,7 +115,7 @@ func NewBot(ctx context.Context, client *n.Client, service *service.Service, sk 
 
 	return &Bot{
 		client:  client,
-		sk:      sk,
+		SK:      sk,
 		pub:     pub,
 		service: service,
 	}, nil
@@ -173,5 +173,5 @@ func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string)
 	}
 
 	msg := fmt.Sprintf("Hello, %s! Your nossence recommendations is ready, follow: %s to fetch your own feed.", receiverNpub, subNpub)
-	return b.client.SendMessage(ctx, b.sk, receiverPub, msg)
+	return b.client.SendMessage(ctx, b.SK, receiverPub, msg)
 }

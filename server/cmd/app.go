@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/dyng/nosdaily/bot"
 	"github.com/dyng/nosdaily/database"
@@ -76,6 +77,7 @@ func (app *Application) Run() {
 func (app *Application) listenAndServe() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/feed", app.handleFeed)
+	mux.HandleFunc("/push", app.handlePush)
 
 	log.Info("Server started")
 	err := http.ListenAndServe(":8080", mux)
@@ -88,6 +90,13 @@ func (app *Application) listenAndServe() {
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
 	doResponse(w, false, "Not implemented")
+}
+
+func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
+	userPub := r.URL.Query().Get("pubkey")
+
+	app.bot.Worker.Run(r.Context(), userPub, app.bot.Bot.SK, time.Hour, 10)
+	doResponse(w, true, "pushed")
 }
 
 func doResponse(w http.ResponseWriter, success bool, body any) {
