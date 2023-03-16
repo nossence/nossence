@@ -18,7 +18,7 @@ type Service struct {
 }
 
 type IService interface {
-	GetFeed() any
+	GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry
 }
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {

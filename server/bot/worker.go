@@ -23,7 +23,9 @@ func NewWorker(ctx context.Context, client n.IClient, service service.IService) 
 func (w *Worker) Run(ctx context.Context, userPub, subSK string, timeRange time.Duration, limit int) error {
 	_ = timeRange
 	_ = limit
-	feed := w.service.GetFeed() // TODO: should be GetFeed(userPub, timeRange, limit)
+	start := time.Now().Add(-time.Hour)
+	end := time.Now()
+	feed := w.service.GetFeed(userPub, start, end, limit)
 	if feed == nil {
 		logger.Warn("got empty feed", "userPub", userPub)
 		return nil
