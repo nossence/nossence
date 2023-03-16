@@ -15,7 +15,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-var botlog = log.New("module", "bot")
+var logger = log.New("module", "bot")
 var userSubStore = make(map[string]string)
 
 type BotApplication struct {
@@ -25,9 +25,10 @@ type BotApplication struct {
 }
 
 type Bot struct {
-	client *n.Client
-	sk     string
-	pub    string
+	client  *n.Client
+	service *service.Service
+	sk      string
+	pub     string
 }
 
 func NewBotApplication(config *types.Config, service *service.Service) *BotApplication {
@@ -38,7 +39,7 @@ func NewBotApplication(config *types.Config, service *service.Service) *BotAppli
 		panic(err)
 	}
 
-	bot, err := NewBot(ctx, client, config.Bot.SK)
+	bot, err := NewBot(ctx, client, service, config.Bot.SK)
 	if err != nil {
 		panic(err)
 	}
@@ -58,32 +59,33 @@ func NewBotApplication(config *types.Config, service *service.Service) *BotAppli
 func (ba *BotApplication) Run(ctx context.Context) error {
 	c, err := ba.bot.Listen(ctx)
 	if err != nil {
-		botlog.Crit("cannot listen to subscribe messages", "err", err)
+		logger.Crit("cannot listen to subscribe messages", "err", err)
 	}
 
-	botlog.Info("start listening to subscribe messages...")
+	logger.Info("start listening to subscribe messages...")
 
 	done := make(chan struct{})
 	defer close(done)
 
 	go func(c <-chan nostr.Event) {
 		for ev := range c {
+			logger.Info("received event", "event", ev.Content)
 			if strings.Contains(ev.Content, "#subscribe") {
-				botlog.Info("preparing channel for user", "pubkey", ev.PubKey)
+				logger.Info("preparing channel for user", "pubkey", ev.PubKey)
 				_, new, err := ba.bot.GetOrCreateSubSK(ctx, ev.PubKey)
 				if err != nil {
-					botlog.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
+					logger.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
 					continue
 				}
 
 				if new {
 					ba.bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
-					botlog.Info("sent welcome message to new user", "pubkey", ev.PubKey)
+					logger.Info("sent welcome message to new user", "pubkey", ev.PubKey)
 				} else {
-					botlog.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
+					logger.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
 				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
-				botlog.Warn("unsubscribing user", "pubkey", ev.PubKey)
+				logger.Warn("unsubscribing user", "pubkey", ev.PubKey)
 				ba.bot.RemoveSubSK(ctx, ev.PubKey)
 			}
 		}
@@ -93,7 +95,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 
 	cr := cron.New()
 	cr.AddFunc("0 * * * *", func() {
-		botlog.Info("running hourly cron job")
+		logger.Info("running hourly cron job")
 		for userPub, subSK := range userSubStore {
 			ba.worker.Run(ctx, userPub, subSK, time.Hour, 10)
 		}
@@ -101,27 +103,30 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 
 	<-done
 	cr.Stop()
-	botlog.Info("bot exiting...")
+	logger.Info("bot exiting...")
 	return nil
 }
 
-func NewBot(ctx context.Context, client *n.Client, sk string) (*Bot, error) {
+func NewBot(ctx context.Context, client *n.Client, service *service.Service, sk string) (*Bot, error) {
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Bot{
-		client: client,
-		sk:     sk,
-		pub:    pub,
+		client:  client,
+		sk:      sk,
+		pub:     pub,
+		service: service,
 	}, nil
 }
 
 func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
+	now := time.Now()
 	filters := nostr.Filters{
 		nostr.Filter{
 			Kinds: []int{1},
+			Since: &now,
 			Tags: nostr.TagMap{
 				"p": []string{b.pub},
 			},
@@ -131,25 +136,25 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 }
 
 func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, bool, error) {
-	// TODO: lock in case there're multiple attempts on the same pubkey
-	// TODO: use a persistent storage for subSK
-	if subSK, ok := userSubStore[userPub]; ok {
-		return subSK, false, nil
+	subscriber := b.service.GetSubscriber(userPub)
+	if subscriber != nil {
+		// TODO: should handle unsubscribed user re-subscribing
+		// in which case, should scrub the unsubscribed_at field
+		// and return with true to trigger a welcome back message
+		return subscriber.ChannelSecret, false, nil
 	}
 
 	subSK := nostr.GeneratePrivateKey()
-	userSubStore[userPub] = subSK
+	err := b.service.CreateSubscriber(userPub, subSK, time.Now())
+	if err != nil {
+		return "", false, err
+	}
+
 	return subSK, true, nil
 }
 
 func (b *Bot) RemoveSubSK(ctx context.Context, userPub string) error {
-	// TODO: use a persistent storage for subSK
-	if _, ok := userSubStore[userPub]; ok {
-		delete(userSubStore, userPub)
-		return nil
-	}
-
-	return fmt.Errorf("user not found")
+	return b.service.DeleteSubscriber(userPub, time.Now())
 }
 
 func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string) error {
