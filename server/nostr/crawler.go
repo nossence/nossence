@@ -36,7 +36,7 @@ func (c *Crawler) subscribe(url string) error {
 
 	// TODO: make relaySubs thread safe
 	sub := relay.Subscribe(context.Background(), []nostr.Filter{{
-		Kinds: []int{1, 30023},
+		Kinds: []int{1, 3, 7, 9735},
 		Limit: 100,
 	}})
 	c.relaySubs[url] = sub
