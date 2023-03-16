@@ -87,7 +87,7 @@ func (app *Application) listenAndServe() {
 }
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
-	doResponse(w, true, app.service.GetFeed())
+	doResponse(w, false, "Not implemented")
 }
 
 func doResponse(w http.ResponseWriter, success bool, body any) {
