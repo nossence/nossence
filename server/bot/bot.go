@@ -15,7 +15,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-var botlog = log.New("module", "bot")
+var logger = log.New("module", "bot")
 var userSubStore = make(map[string]string)
 
 type BotApplication struct {
@@ -58,32 +58,33 @@ func NewBotApplication(config *types.Config, service *service.Service) *BotAppli
 func (ba *BotApplication) Run(ctx context.Context) error {
 	c, err := ba.bot.Listen(ctx)
 	if err != nil {
-		botlog.Crit("cannot listen to subscribe messages", "err", err)
+		logger.Crit("cannot listen to subscribe messages", "err", err)
 	}
 
-	botlog.Info("start listening to subscribe messages...")
+	logger.Info("start listening to subscribe messages...")
 
 	done := make(chan struct{})
 	defer close(done)
 
 	go func(c <-chan nostr.Event) {
 		for ev := range c {
+			logger.Info("received event", "event", ev.Content)
 			if strings.Contains(ev.Content, "#subscribe") {
-				botlog.Info("preparing channel for user", "pubkey", ev.PubKey)
+				logger.Info("preparing channel for user", "pubkey", ev.PubKey)
 				_, new, err := ba.bot.GetOrCreateSubSK(ctx, ev.PubKey)
 				if err != nil {
-					botlog.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
+					logger.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
 					continue
 				}
 
 				if new {
 					ba.bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
-					botlog.Info("sent welcome message to new user", "pubkey", ev.PubKey)
+					logger.Info("sent welcome message to new user", "pubkey", ev.PubKey)
 				} else {
-					botlog.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
+					logger.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
 				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
-				botlog.Warn("unsubscribing user", "pubkey", ev.PubKey)
+				logger.Warn("unsubscribing user", "pubkey", ev.PubKey)
 				ba.bot.RemoveSubSK(ctx, ev.PubKey)
 			}
 		}
@@ -93,7 +94,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 
 	cr := cron.New()
 	cr.AddFunc("0 * * * *", func() {
-		botlog.Info("running hourly cron job")
+		logger.Info("running hourly cron job")
 		for userPub, subSK := range userSubStore {
 			ba.worker.Run(ctx, userPub, subSK, time.Hour, 10)
 		}
@@ -101,7 +102,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 
 	<-done
 	cr.Stop()
-	botlog.Info("bot exiting...")
+	logger.Info("bot exiting...")
 	return nil
 }
 
