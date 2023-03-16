@@ -25,9 +25,10 @@ type BotApplication struct {
 }
 
 type Bot struct {
-	client *n.Client
-	sk     string
-	pub    string
+	client  *n.Client
+	service *service.Service
+	sk      string
+	pub     string
 }
 
 func NewBotApplication(config *types.Config, service *service.Service) *BotApplication {
@@ -38,7 +39,7 @@ func NewBotApplication(config *types.Config, service *service.Service) *BotAppli
 		panic(err)
 	}
 
-	bot, err := NewBot(ctx, client, config.Bot.SK)
+	bot, err := NewBot(ctx, client, service, config.Bot.SK)
 	if err != nil {
 		panic(err)
 	}
@@ -106,23 +107,26 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	return nil
 }
 
-func NewBot(ctx context.Context, client *n.Client, sk string) (*Bot, error) {
+func NewBot(ctx context.Context, client *n.Client, service *service.Service, sk string) (*Bot, error) {
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Bot{
-		client: client,
-		sk:     sk,
-		pub:    pub,
+		client:  client,
+		sk:      sk,
+		pub:     pub,
+		service: service,
 	}, nil
 }
 
 func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
+	now := time.Now()
 	filters := nostr.Filters{
 		nostr.Filter{
 			Kinds: []int{1},
+			Since: &now,
 			Tags: nostr.TagMap{
 				"p": []string{b.pub},
 			},
@@ -132,25 +136,25 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 }
 
 func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, bool, error) {
-	// TODO: lock in case there're multiple attempts on the same pubkey
-	// TODO: use a persistent storage for subSK
-	if subSK, ok := userSubStore[userPub]; ok {
-		return subSK, false, nil
+	subscriber := b.service.GetSubscriber(userPub)
+	if subscriber != nil {
+		// TODO: should handle unsubscribed user re-subscribing
+		// in which case, should scrub the unsubscribed_at field
+		// and return with true to trigger a welcome back message
+		return subscriber.ChannelSecret, false, nil
 	}
 
 	subSK := nostr.GeneratePrivateKey()
-	userSubStore[userPub] = subSK
+	err := b.service.CreateSubscriber(userPub, subSK, time.Now())
+	if err != nil {
+		return "", false, err
+	}
+
 	return subSK, true, nil
 }
 
 func (b *Bot) RemoveSubSK(ctx context.Context, userPub string) error {
-	// TODO: use a persistent storage for subSK
-	if _, ok := userSubStore[userPub]; ok {
-		delete(userSubStore, userPub)
-		return nil
-	}
-
-	return fmt.Errorf("user not found")
+	return b.service.DeleteSubscriber(userPub, time.Now())
 }
 
 func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string) error {

@@ -107,3 +107,69 @@ func (s *Service) StorePost(post types.Post) error {
 	})
 	return err
 }
+
+func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error {
+	log.Debug("Create subscriber", "pubkey", pubkey)
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		_, err := tx.Run(context.Background(), "MERGE (s:Subscriber {pubkey: $Pubkey}) ON CREATE SET s.channel_secret = $ChannelSecret, s.subscribed_at = $SubscribedAt, s.unsubscribed_at = null;",
+			map[string]any{
+				"Pubkey":        pubkey,
+				"ChannelSecret": channelSK,
+				"SubscribedAt":  subscribedAt.Unix(),
+			})
+		return nil, err
+	})
+	return err
+}
+
+func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
+	subscriber, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		result, err := tx.Run(ctx, "MATCH (s:Subscriber {pubkey: $Pubkey}) RETURN s.pubkey, s.channel_secret, s.subscribed_at, s.unsubscribed_at;",
+			map[string]any{
+				"Pubkey": pubkey,
+			})
+		if err != nil {
+			return nil, err
+		}
+
+		record, err := result.Single(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		subscriber := types.Subscriber{
+			Pubkey:         record.Values[0].(string),
+			ChannelSecret:  record.Values[1].(string),
+			SubscribedAt:   time.Unix(record.Values[2].(int64), 0),
+			UnsubscribedAt: time.Unix(record.Values[3].(int64), 0),
+		}
+
+		return subscriber, nil
+	})
+
+	if err != nil {
+		log.Error("Failed to get subscriber", "err", err)
+		return nil
+	}
+
+	if result, ok := subscriber.(types.Subscriber); ok {
+		return &result
+	}
+
+	return nil
+}
+
+func (s *Service) DeleteSubscriber(pubkey string, unsubscribedAt time.Time) error {
+	log.Debug("Deleting subscriber", "pubkey", pubkey)
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		_, err := tx.Run(context.Background(), "MATCH (s:Subscriber {pubkey: $Pubkey}) SET s.unsubscribed_at = $UnsubscribedAt;",
+			map[string]any{
+				"Pubkey":         pubkey,
+				"UnsubscribedAt": unsubscribedAt.Unix(),
+			})
+		return nil, err
+	})
+	return err
+}
