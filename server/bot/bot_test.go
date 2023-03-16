@@ -2,8 +2,6 @@ package bot
 
 import (
 	"context"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,23 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var botSK string
-var userSK string
-
-func getRelayURIs() []string {
-	return strings.Split(os.Getenv("NOSTR_RELAY_URI"), ",")
-}
-
-func TestMain(m *testing.M) {
-	botSK = nostr.GeneratePrivateKey()
-	userSK = nostr.GeneratePrivateKey()
-
-	code := m.Run()
-	os.Exit(code)
-}
+var botSK = nostr.GeneratePrivateKey()
+var userSK = nostr.GeneratePrivateKey()
+var relays = []string{"ws://localhost:8090"}
 
 func TestNewBot(t *testing.T) {
-	client, err := n.NewClient(context.Background(), getRelayURIs())
+	client, err := n.NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	bot, err := NewBot(context.Background(), client, botSK)
@@ -39,7 +26,7 @@ func TestNewBot(t *testing.T) {
 
 // bot should listen to user's subscribe post with mention
 func TestListen(t *testing.T) {
-	client, err := n.NewClient(context.Background(), getRelayURIs())
+	client, err := n.NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	bot, err := NewBot(context.Background(), client, botSK)
@@ -76,7 +63,7 @@ func TestListen(t *testing.T) {
 
 // bot should generate a sub account and store it with a reference to user
 func TestGetOrCreateSubSK(t *testing.T) {
-	client, err := n.NewClient(context.Background(), getRelayURIs())
+	client, err := n.NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	bot, err := NewBot(context.Background(), client, botSK)
@@ -102,7 +89,7 @@ func TestSendWelcomeMessage(t *testing.T) {
 	userPub, err := nostr.GetPublicKey(userSK)
 	assert.NoError(t, err)
 
-	client, err := n.NewClient(context.Background(), getRelayURIs())
+	client, err := n.NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	bot, err := NewBot(context.Background(), client, botSK)

@@ -1,9 +1,40 @@
 version: '3'
 services:
-  client:
+  # client:
+  #   build:
+  #     context: ./client
+  #     args:
+  #       NEXT_PUBLIC_API_BASE_URI: http://localhost:8080
+  #   ports:
+  #     - "3000:3000"
+  
+  server:
     build:
-      context: ./client
-      args:
-        NEXT_PUBLIC_API_BASE_URI: http://localhost:8080
+      context: ./server
     ports:
-      - "3000:3000"
+      - "8080:8080"
+    volumes:
+      - ./server/config.json:/app/config.json
+  
+  neo4j:
+    image: neo4j:5.5.0-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/12345678
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+
+  relay:
+    image: scsibug/nostr-rs-relay:stable
+    ports:
+      - "8090:8080"
+    volumes:
+      - relay-data:/usr/src/app/db
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
+  relay-data:
