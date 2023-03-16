@@ -96,7 +96,7 @@ func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 	for uri, r := range c.Relays {
 		status := r.Publish(ctx, ev)
 		if status == nostr.PublishStatusFailed {
-			log.Warn("failed to publish event to relay, skipping...", "uri", uri)
+			log.Warn("failed to publish event to relay, skipping...", "uri", uri, "ev", ev)
 			return nil
 		}
 	}
@@ -105,6 +105,8 @@ func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 
 // Repost an event
 func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) error {
+	note, _ := nip19.EncodeNote(eventID)
+	log.Info("reposting event", "event_id", eventID, "note", note, "sk", sk, "author_pub", authorPub)
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return err
@@ -124,7 +126,8 @@ func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) erro
 			nostr.Tag{"e", eventID, "", "mention"},
 			nostr.Tag{"p", authorPub},
 		},
-		Content: "",
+		Content:   "",
+		CreatedAt: time.Now(),
 	}
 
 	err = ev.Sign(sk)
