@@ -44,6 +44,7 @@ func (c *Crawler) AddRelay(url string) {
 	err := c.subscribe(url, since, limit)
 	if err != nil {
 		log.Error("Failed to subscribe to relay", "url", url, "err", err)
+		return
 	}
 
 	go func() {
@@ -51,14 +52,24 @@ func (c *Crawler) AddRelay(url string) {
 			timer := time.NewTicker(ReconnectInterval * time.Second)
 			<-timer.C
 
-			// reconnect
+			// close current connection
 			log.Info("Close & reconnect to relay", "url", url)
 			err := c.connections[url].Close()
 			if err != nil {
 				log.Error("Failed to close connection", "url", url, "err", err)
 				continue
 			}
-			c.subscribe(url, time.Now(), 100)
+
+			// wait for a while
+			waitPeriod := 30 * time.Second
+			time.Sleep(waitPeriod)
+
+			// reconnect
+			err = c.subscribe(url, time.Now().Add(-waitPeriod), 1000)
+			if err != nil {
+				log.Error("Failed to subscribe to relay", "url", url, "err", err)
+				return
+			}
 		}
 	}()
 }
