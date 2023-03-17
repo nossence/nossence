@@ -40,7 +40,7 @@ func NewApplication() *Application {
 	// inject dependencies
 	neo4j := database.NewNeo4jDb(config)
 	service := service.NewService(config, neo4j)
-	crawler := nostr.NewCrawler(service)
+	crawler := nostr.NewCrawler(config, service)
 	bot := bot.NewBotApplication(config, service)
 	return &Application{
 		config:  config,
@@ -60,10 +60,8 @@ func (app *Application) Run() {
 	app.service.InitDatabase()
 	defer app.neo4j.Close()
 
-	// add relays
-	for _, v := range app.config.Crawler.Relays {
-		app.crawler.AddRelay(v)
-	}
+	// start crawler
+	app.crawler.Run()
 
 	// start bot app
 	go func() {

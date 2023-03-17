@@ -7,6 +7,8 @@ type BotConfig struct {
 
 type CrawlerConfig struct {
 	Relays []string
+	Since  string `default:"-1h"`
+	Limit  int `default:"0"`
 }
 
 type Neo4jConfig struct {
