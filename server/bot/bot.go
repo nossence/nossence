@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,12 +10,10 @@ import (
 	"github.com/dyng/nosdaily/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/robfig/cron/v3"
 )
 
 var logger = log.New("module", "bot")
-var userSubStore = make(map[string]string)
 
 type BotApplication struct {
 	Bot    *Bot
@@ -25,8 +22,8 @@ type BotApplication struct {
 }
 
 type Bot struct {
-	client  *n.Client
-	service *service.Service
+	client  n.IClient
+	service service.IService
 	SK      string
 	pub     string
 }
@@ -62,6 +59,17 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 		logger.Crit("cannot listen to subscribe messages", "err", err)
 	}
 
+	schedule := "0 * * * *"
+	logger.Info("register worker cron job", "schedule", schedule)
+
+	cr := cron.New()
+	defer cr.Stop()
+	cr.AddFunc(schedule, func() {
+		logger.Info("running cron job")
+		ba.Worker.Run(ctx)
+	})
+	cr.Start()
+
 	logger.Info("start listening to subscribe messages...")
 
 	done := make(chan struct{})
@@ -69,37 +77,42 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 
 	go func(c <-chan nostr.Event) {
 		for ev := range c {
-			logger.Info("received event", "event", ev.Content)
+			logger.Info("received mentioning event", "event", ev.Content)
 			if strings.Contains(ev.Content, "#subscribe") {
-				logger.Info("preparing channel for user", "pubkey", ev.PubKey)
-				_, new, err := ba.Bot.GetOrCreateSubSK(ctx, ev.PubKey)
+				logger.Info("preparing channel", "pubkey", ev.PubKey)
+				channelSK, new, err := ba.Bot.GetOrCreateSubscription(ctx, ev.PubKey)
 				if err != nil {
-					logger.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
+					logger.Warn("failed to create channel", "pubkey", ev.PubKey, "err", err)
 					continue
 				}
 
 				if new {
-					ba.Bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
-					logger.Info("sent welcome message to new user", "pubkey", ev.PubKey)
+					ba.Bot.SendWelcomeMessage(ctx, channelSK, ev.PubKey)
+					logger.Info("sent welcome message to new subscriber", "pubkey", ev.PubKey)
 				} else {
-					logger.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
+					restored, err := ba.Bot.RestoreSubscription(ctx, ev.PubKey)
+					if err != nil {
+						logger.Warn("failed to restore subscription", "pubkey", ev.PubKey, "err", err)
+					}
+
+					if restored {
+						logger.Info("sending welcome message to returning subscriber", "pubkey", ev.PubKey)
+						err := ba.Bot.SendWelcomeMessage(ctx, channelSK, ev.PubKey)
+						if err != nil {
+							logger.Warn("failed to send welcome message returning subscriber", "pubkey", ev.PubKey, "err", err)
+						}
+					} else {
+						logger.Info("skip welcome message for existing subscriber", "pubkey", ev.PubKey)
+					}
 				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
-				logger.Warn("unsubscribing user", "pubkey", ev.PubKey)
-				ba.Bot.RemoveSubSK(ctx, ev.PubKey)
+				logger.Warn("unsubscribing", "pubkey", ev.PubKey)
+				ba.Bot.TerminateSubscription(ctx, ev.PubKey)
 			}
 		}
 
 		done <- struct{}{}
 	}(c)
-
-	cr := cron.New()
-	cr.AddFunc("0 * * * *", func() {
-		logger.Info("running hourly cron job")
-		for userPub, subSK := range userSubStore {
-			ba.Worker.Run(ctx, userPub, subSK, time.Hour, 10)
-		}
-	})
 
 	<-done
 	cr.Stop()
@@ -107,7 +120,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	return nil
 }
 
-func NewBot(ctx context.Context, client *n.Client, service *service.Service, sk string) (*Bot, error) {
+func NewBot(ctx context.Context, client n.IClient, service service.IService, sk string) (*Bot, error) {
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return nil, err
@@ -135,43 +148,40 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 	return b.client.Subscribe(ctx, filters), nil
 }
 
-func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, bool, error) {
-	subscriber := b.service.GetSubscriber(userPub)
+func (b *Bot) GetOrCreateSubscription(ctx context.Context, subscriberPub string) (string, bool, error) {
+	subscriber := b.service.GetSubscriber(subscriberPub)
 	if subscriber != nil {
-		// TODO: should handle unsubscribed user re-subscribing
-		// in which case, should scrub the unsubscribed_at field
-		// and return with true to trigger a welcome back message
+		logger.Info("found existing subscriber", "pubkey", subscriberPub)
 		return subscriber.ChannelSecret, false, nil
 	}
 
-	subSK := nostr.GeneratePrivateKey()
-	err := b.service.CreateSubscriber(userPub, subSK, time.Now())
+	logger.Info("creating new subscriber", "pubkey", subscriberPub)
+	channelSK := nostr.GeneratePrivateKey()
+	err := b.service.CreateSubscriber(subscriberPub, channelSK, time.Now())
 	if err != nil {
 		return "", false, err
 	}
 
-	return subSK, true, nil
+	return channelSK, true, nil
 }
 
-func (b *Bot) RemoveSubSK(ctx context.Context, userPub string) error {
-	return b.service.DeleteSubscriber(userPub, time.Now())
+func (b *Bot) TerminateSubscription(ctx context.Context, subscriberPub string) error {
+	return b.service.DeleteSubscriber(subscriberPub, time.Now())
 }
 
-func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string) error {
-	receiverNpub, err := nip19.EncodePublicKey(receiverPub)
+func (b *Bot) RestoreSubscription(ctx context.Context, subscriberPub string) (bool, error) {
+	return b.service.RestoreSubscriber(subscriberPub, time.Now())
+}
+
+func (b *Bot) SendWelcomeMessage(ctx context.Context, channelSK, receiverPub string) error {
+	channelPub, err := nostr.GetPublicKey(channelSK)
 	if err != nil {
 		return err
 	}
 
-	subPub, err := nostr.GetPublicKey(subSK)
-	if err != nil {
-		return err
-	}
-	subNpub, err := nip19.EncodePublicKey(subPub)
-	if err != nil {
-		return err
-	}
-
-	msg := fmt.Sprintf("Hello, %s! Your nossence recommendations is ready, follow: %s to fetch your own feed.", receiverNpub, subNpub)
-	return b.client.SendMessage(ctx, b.SK, receiverPub, msg)
+	msg := "Hello, #[0]! Your nossence recommendations is ready, follow: #[1] to fetch your own feed."
+	return b.client.Mention(ctx, b.SK, msg, []string{
+		receiverPub,
+		channelPub,
+	})
 }

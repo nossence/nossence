@@ -80,6 +80,8 @@ github.com/dyng/nossence-algo v0.0.0-20230318103948-419e879d6863 h1:PFwHQOhdZ/2V
 github.com/dyng/nossence-algo v0.0.0-20230318103948-419e879d6863/go.mod h1:/CswJGVt7/GyDNCszSdwlBbp7SXH57SypMpCB3Nk4eM=
 github.com/dyng/nossence-algo v0.0.0-20230318121037-87c75684f1ac h1:y1w4zZ+rsbMleNhZ1ZpSfRk+YaN9ulJ3LSnArcQ/0ho=
 github.com/dyng/nossence-algo v0.0.0-20230318121037-87c75684f1ac/go.mod h1:/CswJGVt7/GyDNCszSdwlBbp7SXH57SypMpCB3Nk4eM=
+github.com/dyng/nossence-algo v0.0.0-20230318131235-116e4270ad8a h1:i6uTMAwkfwaqhpkU077xiYySvak+Ri3GtRcTNEFOew0=
+github.com/dyng/nossence-algo v0.0.0-20230318131235-116e4270ad8a/go.mod h1:/CswJGVt7/GyDNCszSdwlBbp7SXH57SypMpCB3Nk4eM=
 github.com/ethereum/go-ethereum v1.11.2 h1:z/luyejbevDCAMUUiu0rc80dxJxOnpoG58k5o0tSawc=
 github.com/ethereum/go-ethereum v1.11.2/go.mod h1:DuefStAgaxoaYGLR0FueVcVbehmn5n9QUcVrMCuOvuc=
 github.com/ethereum/go-ethereum v1.11.4 h1:KG81SnUHXWk8LJB3mBcHg/E2yLvXoiPmRMCIRxgx3cE=

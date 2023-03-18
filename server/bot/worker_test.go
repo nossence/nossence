@@ -6,44 +6,29 @@ import (
 	"time"
 
 	algo "github.com/dyng/nossence-algo"
+	"github.com/dyng/nosdaily/nostr"
+	"github.com/dyng/nosdaily/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-type MockClient struct {
-	mock.Mock
-}
-
-func (m *MockClient) Repost(ctx context.Context, sk, id, author string) error {
-	args := m.Called(ctx, sk, id, author)
-	return args.Error(0)
-}
-
-type MockService struct {
-	mock.Mock
-}
-
-func (m *MockService) GetFeed() any {
-	args := m.Called()
-	return args.Get(0)
-}
-
 func TestWorkerRun(t *testing.T) {
-	mockClient := new(MockClient)
-	mockClient.On("Repost", context.Background(), "subSK", "123", "foo").Return(nil)
+	mockClient := new(nostr.MockClient)
+	mockClient.On("Repost", context.Background(), "channel_secret", "event_id", "author_pub", "raw_event").Return(nil)
 
-	mockService := new(MockService)
+	mockService := new(service.MockService)
 	mockService.On("GetFeed").Return([]algo.FeedEntry{
 		{
-			Id:     "123",
-			Pubkey: "foo",
+			Id:     "event_id",
+			Pubkey: "author_pub",
+			Raw:    "raw_event",
 		},
 	})
 
 	worker, err := NewWorker(context.Background(), mockClient, mockService)
 	assert.NoError(t, err)
 
-	worker.Run(context.Background(), "userPub", "subSK", time.Hour, 10)
-	mockService.AssertCalled(t, "GetFeed")
-	mockClient.AssertCalled(t, "Repost", context.Background(), "subSK", "123", "foo")
+	worker.Push(context.Background(), "subscriber_pub", "channel_secret", time.Hour, 10)
+	mockService.AssertCalled(t, "GetFeed", "subscriber_pub", mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time"), 10)
+	mockClient.AssertCalled(t, "Repost", context.Background(), "channel_secret", "event_id", "author_pub", "raw_event")
 }
