@@ -328,3 +328,28 @@ func (s *Service) DeleteSubscriber(pubkey string, unsubscribedAt time.Time) erro
 	})
 	return err
 }
+
+func (s *Service) RestoreSubscriber(pubkey string, subscribedAt time.Time) (bool, error) {
+	log.Debug("Restore subscriber", "pubkey", pubkey)
+
+	subscriber := s.GetSubscriber(pubkey)
+	if subscriber.UnsubscribedAt.IsZero() {
+		return false, nil
+	}
+
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		_, err := tx.Run(context.Background(), "MATCH (s:Subscriber {pubkey: $Pubkey}) SET s.unsubscribed_at = null, s.subscribed_at = $SubscribedAt;",
+			map[string]any{
+				"Pubkey":       pubkey,
+				"SubscribedAt": subscribedAt.Unix(),
+			})
+
+		return nil, err
+	})
+
+	if err != nil {
+		return false, err
+	}
+
+	return true, err
+}

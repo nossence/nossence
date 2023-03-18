@@ -82,7 +82,16 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 					ba.Bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
 					logger.Info("sent welcome message to new user", "pubkey", ev.PubKey)
 				} else {
-					logger.Info("known user, skipping welcome message", "pubkey", ev.PubKey)
+					logger.Info("known user, check if it is resubscription", "pubkey", ev.PubKey)
+					restored, err := ba.Bot.RestoreSubSK(ctx, ev.PubKey)
+					if err != nil {
+						logger.Warn("failed to restore subscription", "pubkey", ev.PubKey, "err", err)
+					}
+
+					if restored {
+						ba.Bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
+						logger.Info("sent welcome message to resubscribing user", "pubkey", ev.PubKey)
+					}
 				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
 				logger.Warn("unsubscribing user", "pubkey", ev.PubKey)
@@ -96,6 +105,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	cr := cron.New()
 	cr.AddFunc("0 * * * *", func() {
 		logger.Info("running hourly cron job")
+		// TODO: should use neo4j as backend to run through user list
 		for userPub, subSK := range userSubStore {
 			ba.Worker.Run(ctx, userPub, subSK, time.Hour, 10)
 		}
@@ -138,9 +148,6 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, bool, error) {
 	subscriber := b.service.GetSubscriber(userPub)
 	if subscriber != nil {
-		// TODO: should handle unsubscribed user re-subscribing
-		// in which case, should scrub the unsubscribed_at field
-		// and return with true to trigger a welcome back message
 		return subscriber.ChannelSecret, false, nil
 	}
 
@@ -155,6 +162,10 @@ func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, boo
 
 func (b *Bot) RemoveSubSK(ctx context.Context, userPub string) error {
 	return b.service.DeleteSubscriber(userPub, time.Now())
+}
+
+func (b *Bot) RestoreSubSK(ctx context.Context, userPub string) (bool, error) {
+	return b.service.RestoreSubscriber(userPub, time.Now())
 }
 
 func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string) error {
