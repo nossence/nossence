@@ -24,6 +24,10 @@ type Service struct {
 type IService interface {
 	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry
 	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
+	GetSubscriber(pubkey string) *types.Subscriber
+	CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error
+	DeleteSubscriber(pubkey string, unsubscribedAt time.Time) error
+	RestoreSubscriber(pubkey string, subscribedAt time.Time) (bool, error)
 }
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
@@ -39,7 +43,7 @@ type FeedEntry struct {
 	Pubkey    string    `json:"pubkey"`
 	CreatedAt time.Time `json:"created_at"`
 	Score     int       `json:"score"`
-	Raw       string    `json:"raw`
+	Raw       string    `json:"raw"`
 }
 
 func (s *Service) InitDatabase() error {

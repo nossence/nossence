@@ -18,7 +18,9 @@ type Client struct {
 }
 
 type IClient interface {
+	Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event
 	Repost(ctx context.Context, sk, id, author, raw string) error
+	Mention(ctx context.Context, sk, msg string, mentions []string) error
 }
 
 func DecodeNsec(nsec string) (string, error) {

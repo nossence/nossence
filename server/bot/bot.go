@@ -22,8 +22,8 @@ type BotApplication struct {
 }
 
 type Bot struct {
-	client  *n.Client
-	service *service.Service
+	client  n.IClient
+	service service.IService
 	SK      string
 	pub     string
 }
@@ -115,7 +115,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	return nil
 }
 
-func NewBot(ctx context.Context, client *n.Client, service *service.Service, sk string) (*Bot, error) {
+func NewBot(ctx context.Context, client n.IClient, service service.IService, sk string) (*Bot, error) {
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return nil, err

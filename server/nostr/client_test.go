@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func getRelayURIs() []string {
-	return []string{"ws://localhost:8090"}
-}
+var relays = []string{"ws://localhost:8090"}
 
 func getIdentity() (sk, pub string) {
 	sk = nostr.GeneratePrivateKey()
@@ -31,12 +29,12 @@ func getReceiverPub() string {
 }
 
 func TestNewClient(t *testing.T) {
-	_, err := NewClient(context.Background(), getRelayURIs())
+	_, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 }
 
 func TestSubscribe(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	until := time.Now()
@@ -57,7 +55,7 @@ func TestSubscribe(t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	sk, pub := getIdentity()
@@ -76,7 +74,7 @@ func TestPublish(t *testing.T) {
 }
 
 func TestSendMessage(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	sk, _ := getIdentity()
@@ -87,7 +85,7 @@ func TestSendMessage(t *testing.T) {
 }
 
 func TestRepost(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	sk, _ := getIdentity()
