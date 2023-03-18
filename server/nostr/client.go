@@ -18,7 +18,9 @@ type Client struct {
 }
 
 type IClient interface {
-	Repost(ctx context.Context, sk, id, author string) error
+	Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event
+	Repost(ctx context.Context, sk, id, author, raw string) error
+	Mention(ctx context.Context, sk, msg string, mentions []string) error
 }
 
 func DecodeNsec(nsec string) (string, error) {
@@ -60,7 +62,7 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 	for _, uri := range uris {
 		r, err := nostr.RelayConnect(ctx, uri)
 		if err != nil {
-			log.Warn("failed to connect to relay, skipping...", "uri", uri, "err", err)
+			logger.Warn("failed to connect to relay, skipping...", "uri", uri, "err", err)
 			continue
 		}
 		rs[uri] = r
@@ -96,7 +98,7 @@ func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 	for uri, r := range c.Relays {
 		status := r.Publish(ctx, ev)
 		if status == nostr.PublishStatusFailed {
-			log.Warn("failed to publish event to relay, skipping...", "uri", uri, "ev", ev)
+			logger.Warn("failed to publish event to relay, skipping...", "uri", uri, "ev", ev)
 			return nil
 		}
 	}
@@ -104,9 +106,9 @@ func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 }
 
 // Repost an event
-func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) error {
+func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub, raw string) error {
 	note, _ := nip19.EncodeNote(eventID)
-	log.Info("reposting event", "event_id", eventID, "note", note, "sk", sk, "author_pub", authorPub)
+	logger.Debug("reposting event", "event_id", eventID, "note", note, "author_pub", authorPub, "raw", raw)
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return err
@@ -126,8 +128,43 @@ func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) erro
 			nostr.Tag{"e", eventID, "", "mention"},
 			nostr.Tag{"p", authorPub},
 		},
-		Content:   "",
+		// To align with repost requirement on Damus, there's needs
+		// to set the raw origin event in content field
+		Content:   raw,
 		CreatedAt: time.Now(),
+	}
+
+	err = ev.Sign(sk)
+	if err != nil {
+		return err
+	}
+
+	return c.Publish(ctx, ev)
+}
+
+func (c *Client) Mention(ctx context.Context, sk, msg string, mentions []string) error {
+	senderPub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
+	if err != nil {
+		return err
+	}
+
+	mentionTags := nostr.Tags{}
+	for _, m := range mentions {
+		mentionTags = append(mentionTags, nostr.Tag{
+			"p", m, "", "mention",
+		})
+	}
+
+	ev := nostr.Event{
+		PubKey:    senderPub,
+		CreatedAt: time.Now(),
+		Kind:      1,
+		Tags:      mentionTags,
+		Content:   msg,
 	}
 
 	err = ev.Sign(sk)

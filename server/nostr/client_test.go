@@ -3,7 +3,6 @@ package nostr
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -11,23 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func getRelayURIs() []string {
-	return strings.Split(os.Getenv("NOSTR_RELAY_URI"), ",")
-}
+var relays = []string{"ws://localhost:8090"}
 
 func getIdentity() (sk, pub string) {
-	myPrivateKey := os.Getenv("NOSTR_PRIVATE_KEY")
-
-	sk, err := DecodeNsec(myPrivateKey)
-	if err != nil {
-		return
-	}
-
-	pub, err = nostr.GetPublicKey(sk)
-	if err != nil {
-		return
-	}
-
+	sk = nostr.GeneratePrivateKey()
+	pub, _ = nostr.GetPublicKey(sk)
 	return
 }
 
@@ -42,12 +29,12 @@ func getReceiverPub() string {
 }
 
 func TestNewClient(t *testing.T) {
-	_, err := NewClient(context.Background(), getRelayURIs())
+	_, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 }
 
 func TestSubscribe(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	until := time.Now()
@@ -68,7 +55,7 @@ func TestSubscribe(t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	sk, pub := getIdentity()
@@ -87,7 +74,7 @@ func TestPublish(t *testing.T) {
 }
 
 func TestSendMessage(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
 	sk, _ := getIdentity()
@@ -98,13 +85,14 @@ func TestSendMessage(t *testing.T) {
 }
 
 func TestRepost(t *testing.T) {
-	client, err := NewClient(context.Background(), getRelayURIs())
+	client, err := NewClient(context.Background(), relays)
 	assert.NoError(t, err)
 
-	sk, pub := getIdentity()
+	sk, _ := getIdentity()
 	assert.NoError(t, err)
-	eventID := "db3daf21b32bc40beec979343d8a139175c14e62f2e9c7e84528b24dc79e5349"
-	authorPub := pub
-	err = client.Repost(context.Background(), sk, eventID, authorPub)
+	eventID := "foo"
+	authorPub := "bar"
+	raw := ""
+	err = client.Repost(context.Background(), sk, eventID, authorPub, raw)
 	assert.NoError(t, err)
 }

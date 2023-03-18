@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/dyng/nosdaily/database"
@@ -12,13 +14,20 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
+var logger = log.New("module", "service")
+
 type Service struct {
 	config *types.Config
 	neo4j  *database.Neo4jDb
 }
 
 type IService interface {
-	GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry
+	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry
+	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
+	GetSubscriber(pubkey string) *types.Subscriber
+	CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error
+	DeleteSubscriber(pubkey string, unsubscribedAt time.Time) error
+	RestoreSubscriber(pubkey string, subscribedAt time.Time) (bool, error)
 }
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
@@ -32,9 +41,9 @@ type FeedEntry struct {
 	Id        string    `json:"event_id"`
 	Kind      int       `json:"kind"`
 	Pubkey    string    `json:"pubkey"`
-	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
 	Score     int       `json:"score"`
+	Raw       string    `json:"raw"`
 }
 
 func (s *Service) InitDatabase() error {
@@ -52,11 +61,11 @@ func (s *Service) InitDatabase() error {
 	return err
 }
 
-func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry {
+func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry {
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
-		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.content, p.created_at, score;",
+		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.created_at, p.raw, score;",
 			map[string]any{
 				"Start": start.Unix(),
 				"End":   end.Unix(),
@@ -74,9 +83,15 @@ func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit 
 				Id:        record.Values[0].(string),
 				Kind:      int(record.Values[1].(int64)),
 				Pubkey:    record.Values[2].(string),
-				Content:   record.Values[3].(string),
-				CreatedAt: time.Unix(record.Values[4].(int64), 0),
-				Score:     int(record.Values[5].(int64)),
+				CreatedAt: time.Unix(record.Values[3].(int64), 0),
+				Raw: func() string {
+					if v, ok := record.Values[4].(string); ok {
+						return v
+					}
+
+					return ""
+				}(),
+				Score: int(record.Values[5].(int64)),
 			}
 			posts = append(posts, post)
 		}
@@ -84,7 +99,7 @@ func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit 
 	})
 
 	if err != nil {
-		log.Error("Failed to get feed", "err", err)
+		logger.Error("Failed to get feed", "err", err)
 		return nil
 	} else {
 		return posts.([]FeedEntry)
@@ -102,7 +117,7 @@ func (s *Service) StoreEvent(event *nostr.Event) error {
 	case 9735:
 		return s.StoreZap(event)
 	default:
-		log.Warn("Unsupported event kind", "kind", event.Kind)
+		logger.Warn("Unsupported event kind", "kind", event.Kind)
 		return nil
 	}
 }
@@ -241,13 +256,19 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 		return err
 	}
 
-	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, content: $Content, created_at: $CreatedAt});",
+	raw, err := json.Marshal(event)
+	if err != nil {
+		logger.Warn("failed to marshal event", "event", event, "err", err)
+		return err
+	}
+
+	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, raw: $Raw, created_at: $CreatedAt});",
 		map[string]any{
 			"Id":        event.ID,
 			"Kind":      event.Kind,
 			"Author":    event.PubKey,
-			"Content":   event.Content,
 			"CreatedAt": event.CreatedAt.Unix(),
+			"Raw":       string(raw),
 		}); err != nil {
 		return err
 	}
@@ -264,9 +285,16 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 }
 
 func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error {
-	log.Debug("Create subscriber", "pubkey", pubkey)
+	logger.Debug("Create subscriber", "pubkey", pubkey)
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
-		_, err := tx.Run(context.Background(), "MERGE (s:Subscriber {pubkey: $Pubkey}) ON CREATE SET s.channel_secret = $ChannelSecret, s.subscribed_at = $SubscribedAt, s.unsubscribed_at = null;",
+		query := `
+			MERGE (s:Subscriber {pubkey: $Pubkey}) ON CREATE
+			SET
+				s.channel_secret = $ChannelSecret,
+				s.subscribed_at = $SubscribedAt,
+				s.unsubscribed_at = null;
+		`
+		_, err := tx.Run(context.Background(), query,
 			map[string]any{
 				"Pubkey":        pubkey,
 				"ChannelSecret": channelSK,
@@ -277,11 +305,77 @@ func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.T
 	return err
 }
 
+func (s *Service) ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error) {
+	subscribers, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		query := `
+		  MATCH (s:Subscriber)
+			RETURN s
+			ORDER BY s.pubkey
+			SKIP $Skip
+			LIMIT $Limit;
+		`
+		result, err := tx.Run(ctx, query,
+			map[string]any{
+				"Limit": limit,
+				"Skip":  skip,
+			})
+		if err != nil {
+			return nil, err
+		}
+
+		var subscribers []types.Subscriber
+
+		for result.Next(ctx) {
+			record := result.Record()
+
+			rawItemNode, found := record.Get("s")
+			if !found {
+				return nil, fmt.Errorf("no s field")
+			}
+			itemNode := rawItemNode.(neo4j.Node)
+			props := itemNode.Props
+
+			subscriber := types.Subscriber{
+				Pubkey:        props["pubkey"].(string),
+				ChannelSecret: props["channel_secret"].(string),
+				SubscribedAt: func() *time.Time {
+					t := time.Unix(props["subscribed_at"].(int64), 0)
+					return &t
+				}(),
+				UnsubscribedAt: func() *time.Time {
+					if v, ok := props["unsubscribed_at"].(int64); ok {
+						t := time.Unix(v, 0)
+						return &t
+					}
+
+					return nil
+				}(),
+			}
+
+			subscribers = append(subscribers, subscriber)
+		}
+
+		return subscribers, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return subscribers.([]types.Subscriber), nil
+}
+
 func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
 	subscriber, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
-		result, err := tx.Run(ctx, "MATCH (s:Subscriber {pubkey: $Pubkey}) RETURN s.pubkey, s.channel_secret, s.subscribed_at, s.unsubscribed_at;",
+		query := `
+			MATCH (s:Subscriber {pubkey: $Pubkey})
+			RETURN s;
+		`
+		result, err := tx.Run(ctx, query,
 			map[string]any{
 				"Pubkey": pubkey,
 			})
@@ -294,18 +388,35 @@ func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
 			return nil, err
 		}
 
+		rawItemNode, found := record.Get("s")
+		if !found {
+			return nil, fmt.Errorf("no s field")
+		}
+		itemNode := rawItemNode.(neo4j.Node)
+		props := itemNode.Props
+
 		subscriber := types.Subscriber{
-			Pubkey:         record.Values[0].(string),
-			ChannelSecret:  record.Values[1].(string),
-			SubscribedAt:   time.Unix(record.Values[2].(int64), 0),
-			UnsubscribedAt: time.Unix(record.Values[3].(int64), 0),
+			Pubkey:        props["pubkey"].(string),
+			ChannelSecret: props["channel_secret"].(string),
+			SubscribedAt: func() *time.Time {
+				t := time.Unix(props["subscribed_at"].(int64), 0)
+				return &t
+			}(),
+			UnsubscribedAt: func() *time.Time {
+				if v, ok := props["unsubscribed_at"].(int64); ok {
+					t := time.Unix(v, 0)
+					return &t
+				}
+
+				return nil
+			}(),
 		}
 
 		return subscriber, nil
 	})
 
 	if err != nil {
-		log.Error("Failed to get subscriber", "err", err)
+		logger.Error("Failed to get subscriber", "err", err)
 		return nil
 	}
 
@@ -317,9 +428,14 @@ func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
 }
 
 func (s *Service) DeleteSubscriber(pubkey string, unsubscribedAt time.Time) error {
-	log.Debug("Deleting subscriber", "pubkey", pubkey)
+	logger.Debug("Deleting subscriber", "pubkey", pubkey)
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
-		_, err := tx.Run(context.Background(), "MATCH (s:Subscriber {pubkey: $Pubkey}) SET s.unsubscribed_at = $UnsubscribedAt;",
+		query := `
+			MATCH (s:Subscriber {pubkey: $Pubkey})
+			SET
+				s.unsubscribed_at = $UnsubscribedAt;
+		`
+		_, err := tx.Run(context.Background(), query,
 			map[string]any{
 				"Pubkey":         pubkey,
 				"UnsubscribedAt": unsubscribedAt.Unix(),
@@ -327,4 +443,38 @@ func (s *Service) DeleteSubscriber(pubkey string, unsubscribedAt time.Time) erro
 		return nil, err
 	})
 	return err
+}
+
+func (s *Service) RestoreSubscriber(pubkey string, subscribedAt time.Time) (bool, error) {
+	logger.Debug("Restore subscriber", "pubkey", pubkey)
+
+	subscriber := s.GetSubscriber(pubkey)
+	// if unsubscribed_at is null, it means that the subscriber is still subscribed
+	if subscriber.UnsubscribedAt == nil {
+		return false, nil
+	}
+
+	// remove unsubscribed_at timestamp and update subscribed_at timestamp
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		query := `
+			MATCH (s:Subscriber {pubkey: $Pubkey})
+			SET
+				s.unsubscribed_at = null, 
+				s.subscribed_at = $SubscribedAt;
+		`
+		_, err := tx.Run(context.Background(), query,
+			map[string]any{
+				"Pubkey":       pubkey,
+				"SubscribedAt": subscribedAt.Unix(),
+			})
+
+		return nil, err
+	})
+
+	if err != nil {
+		return false, err
+	}
+
+	// if the restoring succeeded, return true
+	return true, err
 }

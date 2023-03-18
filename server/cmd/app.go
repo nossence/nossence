@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/dyng/nosdaily/bot"
@@ -78,6 +79,8 @@ func (app *Application) listenAndServe() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/feed", app.handleFeed)
 	mux.HandleFunc("/push", app.handlePush)
+	mux.HandleFunc("/batch", app.handleBatch)
+	mux.HandleFunc("/run", app.handleRun)
 
 	log.Info("Server started")
 	err := http.ListenAndServe(":8080", mux)
@@ -92,10 +95,27 @@ func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
 	doResponse(w, false, "Not implemented")
 }
 
-func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
-	userPub := r.URL.Query().Get("pubkey")
+func (app *Application) handleRun(w http.ResponseWriter, r *http.Request) {
+	app.bot.Worker.Run(r.Context())
+	doResponse(w, true, "dispatched")
+}
 
-	app.bot.Worker.Run(r.Context(), userPub, app.bot.Bot.SK, time.Hour, 10)
+func (app *Application) handleBatch(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
+	app.bot.Worker.Batch(r.Context(), limit, skip)
+	doResponse(w, true, "dispatched")
+}
+
+func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
+	subscriberPub := r.URL.Query().Get("pubkey")
+
+	subscriber := app.service.GetSubscriber(subscriberPub)
+	if subscriber == nil {
+		doResponse(w, false, "subscriber not found")
+	}
+
+	app.bot.Worker.Push(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10)
 	doResponse(w, true, "pushed")
 }
 
