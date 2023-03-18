@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -36,9 +37,9 @@ type FeedEntry struct {
 	Id        string    `json:"event_id"`
 	Kind      int       `json:"kind"`
 	Pubkey    string    `json:"pubkey"`
-	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
 	Score     int       `json:"score"`
+	Raw       string    `json:"raw`
 }
 
 func (s *Service) InitDatabase() error {
@@ -60,7 +61,7 @@ func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, 
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
-		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.content, p.created_at, score;",
+		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.created_at, p.raw, score;",
 			map[string]any{
 				"Start": start.Unix(),
 				"End":   end.Unix(),
@@ -78,8 +79,8 @@ func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, 
 				Id:        record.Values[0].(string),
 				Kind:      int(record.Values[1].(int64)),
 				Pubkey:    record.Values[2].(string),
-				Content:   record.Values[3].(string),
-				CreatedAt: time.Unix(record.Values[4].(int64), 0),
+				CreatedAt: time.Unix(record.Values[3].(int64), 0),
+				Raw:       record.Values[4].(string),
 				Score:     int(record.Values[5].(int64)),
 			}
 			posts = append(posts, post)
@@ -245,13 +246,19 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 		return err
 	}
 
-	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, content: $Content, created_at: $CreatedAt});",
+	raw, err := json.Marshal(event)
+	if err != nil {
+		logger.Warn("failed to marshal event", "event", event, "err", err)
+		return err
+	}
+
+	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, raw: $Raw, created_at: $CreatedAt});",
 		map[string]any{
 			"Id":        event.ID,
 			"Kind":      event.Kind,
 			"Author":    event.PubKey,
-			"Content":   event.Content,
 			"CreatedAt": event.CreatedAt.Unix(),
+			"Raw":       string(raw),
 		}); err != nil {
 		return err
 	}
