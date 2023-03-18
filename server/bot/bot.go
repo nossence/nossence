@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/dyng/nosdaily/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/robfig/cron/v3"
 )
 
@@ -167,20 +165,14 @@ func (b *Bot) RestoreSubSK(ctx context.Context, userPub string) (bool, error) {
 }
 
 func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string) error {
-	receiverNpub, err := nip19.EncodePublicKey(receiverPub)
-	if err != nil {
-		return err
-	}
-
 	subPub, err := nostr.GetPublicKey(subSK)
 	if err != nil {
 		return err
 	}
-	subNpub, err := nip19.EncodePublicKey(subPub)
-	if err != nil {
-		return err
-	}
 
-	msg := fmt.Sprintf("Hello, %s! Your nossence recommendations is ready, follow: %s to fetch your own feed.", receiverNpub, subNpub)
-	return b.client.SendMessage(ctx, b.SK, receiverPub, msg)
+	msg := "Hello, #[0]! Your nossence recommendations is ready, follow: #[1] to fetch your own feed."
+	return b.client.Mention(ctx, b.SK, msg, []string{
+		receiverPub,
+		subPub,
+	})
 }

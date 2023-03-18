@@ -138,6 +138,39 @@ func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) erro
 	return c.Publish(ctx, ev)
 }
 
+func (c *Client) Mention(ctx context.Context, sk, msg string, mentions []string) error {
+	senderPub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
+	if err != nil {
+		return err
+	}
+
+	mentionTags := nostr.Tags{}
+	for _, m := range mentions {
+		mentionTags = append(mentionTags, nostr.Tag{
+			"p", m, "", "mention",
+		})
+	}
+
+	ev := nostr.Event{
+		PubKey:    senderPub,
+		CreatedAt: time.Now(),
+		Kind:      1,
+		Tags:      mentionTags,
+		Content:   msg,
+	}
+
+	err = ev.Sign(sk)
+	if err != nil {
+		return err
+	}
+
+	return c.Publish(ctx, ev)
+}
+
 // Sends a NIP-04 message
 func (c *Client) SendMessage(ctx context.Context, sk, receiverPub, msg string) error {
 	senderPub, err := nostr.GetPublicKey(sk)

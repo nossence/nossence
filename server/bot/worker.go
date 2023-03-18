@@ -28,6 +28,10 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (bool, error) {
 	}
 
 	for _, subscriber := range subscribers {
+		if subscriber.UnsubscribedAt != nil {
+			logger.Info("skipping unsubscribed user", "pubkey", subscriber.Pubkey)
+			continue
+		}
 		err = w.Run(ctx, subscriber.Pubkey, subscriber.ChannelSecret, time.Hour, 10)
 		if err != nil {
 			logger.Warn("failed to run worker for user", "pubkey", subscriber.Pubkey, "err", err)

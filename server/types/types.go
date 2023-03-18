@@ -17,6 +17,6 @@ type User struct {
 type Subscriber struct {
 	Pubkey         string
 	ChannelSecret  string
-	SubscribedAt   time.Time
-	UnsubscribedAt time.Time
+	SubscribedAt   *time.Time
+	UnsubscribedAt *time.Time
 }
