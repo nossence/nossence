@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/dyng/nosdaily/database"
@@ -19,6 +20,7 @@ type Service struct {
 
 type IService interface {
 	GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry
+	ListSubscribers(ctx context.Context, limit, skip int) ([]*types.Subscriber, error)
 }
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
@@ -275,6 +277,54 @@ func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.T
 		return nil, err
 	})
 	return err
+}
+
+func (s *Service) ListSubscribers(ctx context.Context, limit, skip int) ([]*types.Subscriber, error) {
+	subscribers, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		result, err := tx.Run(ctx, "MATCH (s:Subscriber) RETURN s ORDER BY s.pubkey SKIP $Skip LIMIT $Limit;",
+			map[string]any{
+				"Limit": limit,
+				"Skip":  skip,
+			})
+		if err != nil {
+			return nil, err
+		}
+
+		var subscribers []types.Subscriber
+
+		for result.Next(ctx) {
+			record := result.Record()
+			rawItemNode, found := record.Get("s")
+			if !found {
+				return nil, fmt.Errorf("no s field")
+			}
+			itemNode := rawItemNode.(neo4j.Node)
+
+			pubkey, _ := neo4j.GetProperty[string](itemNode, "pubkey")
+			channelSecret, _ := neo4j.GetProperty[string](itemNode, "channel_secret")
+			subscribedAt, _ := neo4j.GetProperty[int64](itemNode, "subscribed_at")
+			unsubscribedAt, _ := neo4j.GetProperty[int64](itemNode, "unsubscribed_at")
+
+			subscriber := types.Subscriber{
+				Pubkey:         pubkey,
+				ChannelSecret:  channelSecret,
+				SubscribedAt:   time.Unix(subscribedAt, 0),
+				UnsubscribedAt: time.Unix(unsubscribedAt, 0),
+			}
+
+			subscribers = append(subscribers, subscriber)
+		}
+
+		return subscribers, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return subscribers.([]*types.Subscriber), nil
 }
 
 func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {

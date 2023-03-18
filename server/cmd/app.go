@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/dyng/nosdaily/bot"
@@ -92,10 +93,22 @@ func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
 	doResponse(w, false, "Not implemented")
 }
 
+func (app *Application) handleBatch(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"), 10)
+	skip, _ := strconv.Atoi(r.URL.Query().Get("skip"), 10)
+	app.bot.Worker.Batch(r.Context(), limit, skip)
+	doResponse(w, true, "dispatched")
+}
+
 func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
 	userPub := r.URL.Query().Get("pubkey")
 
-	app.bot.Worker.Run(r.Context(), userPub, app.bot.Bot.SK, time.Hour, 10)
+	subscriber := app.service.GetSubscriber(userPub)
+	if subscriber == nil {
+		doResponse(w, false, "user not found")
+	}
+
+	app.bot.Worker.Run(r.Context(), userPub, subscriber.ChannelSecret, time.Hour, 10)
 	doResponse(w, true, "pushed")
 }
 

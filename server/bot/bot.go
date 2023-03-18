@@ -16,7 +16,6 @@ import (
 )
 
 var logger = log.New("module", "bot")
-var userSubStore = make(map[string]string)
 
 type BotApplication struct {
 	Bot    *Bot
@@ -72,14 +71,14 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 			logger.Info("received event", "event", ev.Content)
 			if strings.Contains(ev.Content, "#subscribe") {
 				logger.Info("preparing channel for user", "pubkey", ev.PubKey)
-				_, new, err := ba.Bot.GetOrCreateSubSK(ctx, ev.PubKey)
+				subSK, new, err := ba.Bot.GetOrCreateSubSK(ctx, ev.PubKey)
 				if err != nil {
 					logger.Warn("failed to create channel for user", "pubkey", ev.PubKey, "err", err)
 					continue
 				}
 
 				if new {
-					ba.Bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
+					ba.Bot.SendWelcomeMessage(ctx, subSK, ev.PubKey)
 					logger.Info("sent welcome message to new user", "pubkey", ev.PubKey)
 				} else {
 					logger.Info("known user, check if it is resubscription", "pubkey", ev.PubKey)
@@ -89,7 +88,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 					}
 
 					if restored {
-						ba.Bot.SendWelcomeMessage(ctx, ba.config.Bot.SK, ev.PubKey)
+						ba.Bot.SendWelcomeMessage(ctx, subSK, ev.PubKey)
 						logger.Info("sent welcome message to resubscribing user", "pubkey", ev.PubKey)
 					}
 				}
@@ -105,10 +104,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	cr := cron.New()
 	cr.AddFunc("0 * * * *", func() {
 		logger.Info("running hourly cron job")
-		// TODO: should use neo4j as backend to run through user list
-		for userPub, subSK := range userSubStore {
-			ba.Worker.Run(ctx, userPub, subSK, time.Hour, 10)
-		}
+		ba.Worker.Batch(ctx, 100, 0) // TODO: should check next
 	})
 
 	<-done

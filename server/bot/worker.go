@@ -20,6 +20,23 @@ func NewWorker(ctx context.Context, client n.IClient, service service.IService) 
 	}, nil
 }
 
+func (w *Worker) Batch(ctx context.Context, limit, skip int) (bool, error) {
+	logger.Info("running batch", "limit", limit, "skip", skip)
+	subscribers, err := w.service.ListSubscribers(ctx, limit, skip)
+	if err != nil {
+		return false, err
+	}
+
+	for _, subscriber := range subscribers {
+		err = w.Run(ctx, subscriber.Pubkey, subscriber.ChannelSecret, time.Hour, 10)
+		if err != nil {
+			logger.Warn("failed to run worker for user", "pubkey", subscriber.Pubkey, "err", err)
+		}
+	}
+
+	return false, nil
+}
+
 func (w *Worker) Run(ctx context.Context, userPub, subSK string, timeRange time.Duration, limit int) error {
 	_ = timeRange
 	_ = limit
