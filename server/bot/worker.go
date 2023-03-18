@@ -21,7 +21,21 @@ func NewWorker(ctx context.Context, client n.IClient, service service.IService) 
 	}, nil
 }
 
-func (w *Worker) Batch(ctx context.Context, limit, skip int) (bool, error) {
+func (w *Worker) Run(ctx context.Context) error {
+	limit := 10
+	skip := 0
+	hasNext := true
+
+	for hasNext {
+		hasNext, _ = w.Batch(ctx, limit, skip)
+		skip += limit
+	}
+
+	logger.Info("run finished")
+	return nil
+}
+
+func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err error) {
 	logger.Info("running batch", "limit", limit, "skip", skip)
 	subscribers, err := w.service.ListSubscribers(ctx, limit, skip)
 	if err != nil {
@@ -33,16 +47,16 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (bool, error) {
 			logger.Info("skipping non subscriber", "pubkey", subscriber.Pubkey)
 			continue
 		}
-		err = w.Run(ctx, subscriber.Pubkey, subscriber.ChannelSecret, time.Hour, 10)
+		err = w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, time.Hour, 10)
 		if err != nil {
 			logger.Warn("failed to run worker for subscriber", "pubkey", subscriber.Pubkey, "err", err)
 		}
 	}
 
-	return false, nil
+	return len(subscribers) >= limit, nil
 }
 
-func (w *Worker) Run(ctx context.Context, subscriberPub, channelSK string, timeRange time.Duration, limit int) error {
+func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, timeRange time.Duration, limit int) error {
 	_ = timeRange
 	_ = limit
 	start := time.Now().Add(-time.Hour)

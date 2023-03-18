@@ -59,6 +59,17 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 		logger.Crit("cannot listen to subscribe messages", "err", err)
 	}
 
+	schedule := "0 * * * *"
+	logger.Info("register worker cron job", "schedule", schedule)
+
+	cr := cron.New()
+	defer cr.Stop()
+	cr.AddFunc(schedule, func() {
+		logger.Info("running cron job")
+		ba.Worker.Run(ctx)
+	})
+	cr.Start()
+
 	logger.Info("start listening to subscribe messages...")
 
 	done := make(chan struct{})
@@ -102,12 +113,6 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 
 		done <- struct{}{}
 	}(c)
-
-	cr := cron.New()
-	cr.AddFunc("0 * * * *", func() {
-		logger.Info("running hourly cron job")
-		ba.Worker.Batch(ctx, 100, 0) // TODO: should check next
-	})
 
 	<-done
 	cr.Stop()

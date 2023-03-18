@@ -80,6 +80,7 @@ func (app *Application) listenAndServe() {
 	mux.HandleFunc("/feed", app.handleFeed)
 	mux.HandleFunc("/push", app.handlePush)
 	mux.HandleFunc("/batch", app.handleBatch)
+	mux.HandleFunc("/run", app.handleRun)
 
 	log.Info("Server started")
 	err := http.ListenAndServe(":8080", mux)
@@ -92,6 +93,11 @@ func (app *Application) listenAndServe() {
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
 	doResponse(w, false, "Not implemented")
+}
+
+func (app *Application) handleRun(w http.ResponseWriter, r *http.Request) {
+	app.bot.Worker.Run(r.Context())
+	doResponse(w, true, "dispatched")
 }
 
 func (app *Application) handleBatch(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +115,7 @@ func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
 		doResponse(w, false, "subscriber not found")
 	}
 
-	app.bot.Worker.Run(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10)
+	app.bot.Worker.Push(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10)
 	doResponse(w, true, "pushed")
 }
 
