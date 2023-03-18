@@ -25,6 +25,7 @@ func (w *Worker) Run(ctx context.Context, userPub, subSK string, timeRange time.
 	_ = limit
 	start := time.Now().Add(-time.Hour)
 	end := time.Now()
+	logger.Debug("start to repost feed", "userPub", userPub, "start", start, "end", end, "limit", limit)
 	feed := w.service.GetFeed(userPub, start, end, limit)
 	if len(feed) == 0 {
 		logger.Warn("got empty feed", "userPub", userPub)

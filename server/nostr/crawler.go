@@ -11,21 +11,17 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-const (
-	ReconnectInterval = 3600 // 1 hour
-)
-
 type Crawler struct {
 	config      *types.Config
 	service     *service.Service
-	connections map[string]*relayConn
+	connections map[string]*relayConnection
 }
 
 func NewCrawler(config *types.Config, service *service.Service) *Crawler {
 	return &Crawler{
 		config:      config,
 		service:     service,
-		connections: make(map[string]*relayConn),
+		connections: make(map[string]*relayConnection),
 	}
 }
 
@@ -37,47 +33,48 @@ func (c *Crawler) Run() {
 }
 
 func (c *Crawler) AddRelay(url string) {
-	log.Info("Adding a relay server", "url", url)
-
-	since := time.Now().Add(parseTimeOffset(c.config.Crawler.Since))
-	limit := c.config.Crawler.Limit
-	err := c.subscribe(url, since, limit)
-	if err != nil {
-		log.Error("Failed to subscribe to relay", "url", url, "err", err)
-		return
-	}
-
 	go func() {
+		log.Info("Adding a relay server", "url", url)
+
+		since := time.Now().Add(parseTimeOffset(c.config.Crawler.Since))
+		limit := c.config.Crawler.Limit
+		conn, err := c.subscribe(url, since, limit)
+		if err != nil {
+			log.Error("Failed to subscribe to relay", "url", url, "err", err)
+			return
+		}
+
 		for {
-			timer := time.NewTicker(ReconnectInterval * time.Second)
-			<-timer.C
+			select {
+			case err := <-conn.error:
+				log.Info("Close & reconnect to relay", "url", url)
+				err = conn.Close()
+				if err != nil {
+					log.Error("Failed to close connection", "url", url, "err", err)
+				}
 
-			// close current connection
-			log.Info("Close & reconnect to relay", "url", url)
-			err := c.connections[url].Close()
-			if err != nil {
-				log.Error("Failed to close connection", "url", url, "err", err)
-				continue
-			}
+				// wait for a while
+				waitPeriod := 30 * time.Second
+				time.Sleep(waitPeriod)
 
-			// wait for a while
-			waitPeriod := 30 * time.Second
-			time.Sleep(waitPeriod)
-
-			// reconnect
-			err = c.subscribe(url, time.Now().Add(-waitPeriod), 1000)
-			if err != nil {
-				log.Error("Failed to subscribe to relay", "url", url, "err", err)
-				return
+				// reconnect
+				conn, err = c.subscribe(url, time.Now().Add(-waitPeriod), 1000)
+				if err != nil {
+					log.Error("Failed to subscribe to relay", "url", url, "err", err)
+					return
+				}
 			}
 		}
 	}()
 }
 
-func (c *Crawler) subscribe(url string, since time.Time, limit int) error {
-	relay, err := nostr.RelayConnect(context.Background(), url)
+func (c *Crawler) subscribe(url string, since time.Time, limit int) (*relayConnection, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	relay, err := nostr.RelayConnect(ctx, url)
 	if err != nil {
-		return err
+		cancel()
+		return nil, err
 	}
 
 	var filter nostr.Filter
@@ -94,12 +91,12 @@ func (c *Crawler) subscribe(url string, since time.Time, limit int) error {
 		}
 	}
 	log.Debug("Subscribing to relay", "url", url, "filter", filter)
-	sub := relay.Subscribe(context.Background(), []nostr.Filter{filter})
+	sub := relay.Subscribe(ctx, []nostr.Filter{filter})
 
-	conn := relayConn{
-		relay: relay,
-		sub:   sub,
-		done:  make(chan bool, 1),
+	conn := relayConnection{
+		relay:  relay,
+		cancel: cancel,
+		error:  make(chan error),
 	}
 	c.connections[url] = &conn
 
@@ -114,25 +111,27 @@ func (c *Crawler) subscribe(url string, since time.Time, limit int) error {
 				}
 			case notice := <-relay.Notices:
 				log.Warn("Received relay notice", "notice", notice)
-			case <-conn.done:
+			case err := <-relay.ConnectionError:
+				log.Error("Connection error", "url", url, "err", err)
+				conn.error <- err
+			case <-ctx.Done():
 				log.Debug("Stop consuming events", "url", url)
 				return
 			}
 		}
 	}()
 
-	return nil
+	return &conn, nil
 }
 
-type relayConn struct {
-	relay *nostr.Relay
-	sub   *nostr.Subscription
-	done  chan bool
+type relayConnection struct {
+	relay  *nostr.Relay
+	cancel context.CancelFunc
+	error  chan error
 }
 
-func (rc *relayConn) Close() error {
-	rc.done <- true
-	rc.sub.Unsub()
+func (rc *relayConnection) Close() error {
+	rc.cancel() // 'cancel' is used to close the subscription
 	return rc.relay.Close()
 }
 
