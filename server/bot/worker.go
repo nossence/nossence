@@ -42,7 +42,7 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (bool, error) {
 	return false, nil
 }
 
-func (w *Worker) Run(ctx context.Context, subscriberPub, subSK string, timeRange time.Duration, limit int) error {
+func (w *Worker) Run(ctx context.Context, subscriberPub, channelSK string, timeRange time.Duration, limit int) error {
 	_ = timeRange
 	_ = limit
 	start := time.Now().Add(-time.Hour)
@@ -54,15 +54,15 @@ func (w *Worker) Run(ctx context.Context, subscriberPub, subSK string, timeRange
 	}
 
 	var eventIds []string
-	subPub, _ := nostr.GetPublicKey(subSK)
+	channelPub, _ := nostr.GetPublicKey(channelSK)
 	for _, post := range feed {
-		err := w.client.Repost(ctx, subSK, post.Id, post.Pubkey)
+		err := w.client.Repost(ctx, channelSK, post.Id, post.Pubkey)
 		if err != nil {
-			logger.Warn("failed to repost event", "subPub", subPub, "id", post.Id, "err", err)
+			logger.Warn("failed to repost event", "channelPub", channelPub, "id", post.Id, "err", err)
 		}
 		eventIds = append(eventIds, post.Id)
 	}
 
-	logger.Debug("reposted feed", "subscriberPub", subscriberPub, "subPub", subPub, "eventIds", eventIds)
+	logger.Info("reposted feed", "subscriberPub", subscriberPub, "channelPub", channelPub, "eventIds", eventIds)
 	return nil
 }

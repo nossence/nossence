@@ -69,24 +69,24 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 			logger.Info("received mentioning event", "event", ev.Content)
 			if strings.Contains(ev.Content, "#subscribe") {
 				logger.Info("preparing channel", "pubkey", ev.PubKey)
-				subSK, new, err := ba.Bot.GetOrCreateSubSK(ctx, ev.PubKey)
+				channelSK, new, err := ba.Bot.GetOrCreateSubscription(ctx, ev.PubKey)
 				if err != nil {
 					logger.Warn("failed to create channel", "pubkey", ev.PubKey, "err", err)
 					continue
 				}
 
 				if new {
-					ba.Bot.SendWelcomeMessage(ctx, subSK, ev.PubKey)
+					ba.Bot.SendWelcomeMessage(ctx, channelSK, ev.PubKey)
 					logger.Info("sent welcome message to new subscriber", "pubkey", ev.PubKey)
 				} else {
-					restored, err := ba.Bot.RestoreSubSK(ctx, ev.PubKey)
+					restored, err := ba.Bot.RestoreSubscription(ctx, ev.PubKey)
 					if err != nil {
 						logger.Warn("failed to restore subscription", "pubkey", ev.PubKey, "err", err)
 					}
 
 					if restored {
 						logger.Info("sending welcome message to returning subscriber", "pubkey", ev.PubKey)
-						err := ba.Bot.SendWelcomeMessage(ctx, subSK, ev.PubKey)
+						err := ba.Bot.SendWelcomeMessage(ctx, channelSK, ev.PubKey)
 						if err != nil {
 							logger.Warn("failed to send welcome message returning subscriber", "pubkey", ev.PubKey, "err", err)
 						}
@@ -96,7 +96,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
 				logger.Warn("unsubscribing", "pubkey", ev.PubKey)
-				ba.Bot.RemoveSubSK(ctx, ev.PubKey)
+				ba.Bot.TerminateSubscription(ctx, ev.PubKey)
 			}
 		}
 
@@ -143,7 +143,7 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 	return b.client.Subscribe(ctx, filters), nil
 }
 
-func (b *Bot) GetOrCreateSubSK(ctx context.Context, subscriberPub string) (string, bool, error) {
+func (b *Bot) GetOrCreateSubscription(ctx context.Context, subscriberPub string) (string, bool, error) {
 	subscriber := b.service.GetSubscriber(subscriberPub)
 	if subscriber != nil {
 		logger.Info("found existing subscriber", "pubkey", subscriberPub)
@@ -151,25 +151,25 @@ func (b *Bot) GetOrCreateSubSK(ctx context.Context, subscriberPub string) (strin
 	}
 
 	logger.Info("creating new subscriber", "pubkey", subscriberPub)
-	subSK := nostr.GeneratePrivateKey()
-	err := b.service.CreateSubscriber(subscriberPub, subSK, time.Now())
+	channelSK := nostr.GeneratePrivateKey()
+	err := b.service.CreateSubscriber(subscriberPub, channelSK, time.Now())
 	if err != nil {
 		return "", false, err
 	}
 
-	return subSK, true, nil
+	return channelSK, true, nil
 }
 
-func (b *Bot) RemoveSubSK(ctx context.Context, subscriberPub string) error {
+func (b *Bot) TerminateSubscription(ctx context.Context, subscriberPub string) error {
 	return b.service.DeleteSubscriber(subscriberPub, time.Now())
 }
 
-func (b *Bot) RestoreSubSK(ctx context.Context, subscriberPub string) (bool, error) {
+func (b *Bot) RestoreSubscription(ctx context.Context, subscriberPub string) (bool, error) {
 	return b.service.RestoreSubscriber(subscriberPub, time.Now())
 }
 
-func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string) error {
-	subPub, err := nostr.GetPublicKey(subSK)
+func (b *Bot) SendWelcomeMessage(ctx context.Context, channelSK, receiverPub string) error {
+	channelPub, err := nostr.GetPublicKey(channelSK)
 	if err != nil {
 		return err
 	}
@@ -177,6 +177,6 @@ func (b *Bot) SendWelcomeMessage(ctx context.Context, subSK, receiverPub string)
 	msg := "Hello, #[0]! Your nossence recommendations is ready, follow: #[1] to fetch your own feed."
 	return b.client.Mention(ctx, b.SK, msg, []string{
 		receiverPub,
-		subPub,
+		channelPub,
 	})
 }
