@@ -13,6 +13,8 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
+var logger = log.New("module", "service")
+
 type Service struct {
 	config *types.Config
 	neo4j  *database.Neo4jDb
@@ -86,7 +88,7 @@ func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit 
 	})
 
 	if err != nil {
-		log.Error("Failed to get feed", "err", err)
+		logger.Error("Failed to get feed", "err", err)
 		return nil
 	} else {
 		return posts.([]FeedEntry)
@@ -104,7 +106,7 @@ func (s *Service) StoreEvent(event *nostr.Event) error {
 	case 9735:
 		return s.StoreZap(event)
 	default:
-		log.Warn("Unsupported event kind", "kind", event.Kind)
+		logger.Warn("Unsupported event kind", "kind", event.Kind)
 		return nil
 	}
 }
@@ -266,7 +268,7 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 }
 
 func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error {
-	log.Debug("Create subscriber", "pubkey", pubkey)
+	logger.Debug("Create subscriber", "pubkey", pubkey)
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
 		_, err := tx.Run(context.Background(), "MERGE (s:Subscriber {pubkey: $Pubkey}) ON CREATE SET s.channel_secret = $ChannelSecret, s.subscribed_at = $SubscribedAt, s.unsubscribed_at = null;",
 			map[string]any{
@@ -355,7 +357,7 @@ func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
 	})
 
 	if err != nil {
-		log.Error("Failed to get subscriber", "err", err)
+		logger.Error("Failed to get subscriber", "err", err)
 		return nil
 	}
 
@@ -367,7 +369,7 @@ func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
 }
 
 func (s *Service) DeleteSubscriber(pubkey string, unsubscribedAt time.Time) error {
-	log.Debug("Deleting subscriber", "pubkey", pubkey)
+	logger.Debug("Deleting subscriber", "pubkey", pubkey)
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
 		_, err := tx.Run(context.Background(), "MATCH (s:Subscriber {pubkey: $Pubkey}) SET s.unsubscribed_at = $UnsubscribedAt;",
 			map[string]any{
@@ -380,7 +382,7 @@ func (s *Service) DeleteSubscriber(pubkey string, unsubscribedAt time.Time) erro
 }
 
 func (s *Service) RestoreSubscriber(pubkey string, subscribedAt time.Time) (bool, error) {
-	log.Debug("Restore subscriber", "pubkey", pubkey)
+	logger.Debug("Restore subscriber", "pubkey", pubkey)
 
 	subscriber := s.GetSubscriber(pubkey)
 	if subscriber.UnsubscribedAt.IsZero() {
