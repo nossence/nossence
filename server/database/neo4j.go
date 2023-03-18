@@ -30,6 +30,10 @@ func (db *Neo4jDb) Connect() error {
 	return nil
 }
 
+func (db *Neo4jDb) GetDriver() neo4j.DriverWithContext {
+	return db.driver
+}
+
 func (db *Neo4jDb) Close() error {
 	return db.driver.Close(context.Background())
 }

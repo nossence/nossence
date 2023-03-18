@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dyng/nosdaily/service"
+	algo "github.com/dyng/nossence-algo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -33,7 +33,7 @@ func TestWorkerRun(t *testing.T) {
 	mockClient.On("Repost", context.Background(), "subSK", "123", "foo").Return(nil)
 
 	mockService := new(MockService)
-	mockService.On("GetFeed").Return([]service.FeedEntry{
+	mockService.On("GetFeed").Return([]algo.FeedEntry{
 		{
 			Id:     "123",
 			Pubkey: "foo",

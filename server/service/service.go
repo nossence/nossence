@@ -6,6 +6,7 @@ import (
 
 	"github.com/dyng/nosdaily/database"
 	"github.com/dyng/nosdaily/types"
+	algo "github.com/dyng/nossence-algo"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -15,10 +16,11 @@ import (
 type Service struct {
 	config *types.Config
 	neo4j  *database.Neo4jDb
+	engine *algo.Engine
 }
 
 type IService interface {
-	GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry
+	GetFeed(userPub string, start time.Time, end time.Time, limit int) []algo.FeedEntry
 }
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
@@ -26,15 +28,6 @@ func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
 		config: config,
 		neo4j:  neo4j,
 	}
-}
-
-type FeedEntry struct {
-	Id        string    `json:"event_id"`
-	Kind      int       `json:"kind"`
-	Pubkey    string    `json:"pubkey"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
-	Score     int       `json:"score"`
 }
 
 func (s *Service) InitDatabase() error {
@@ -49,46 +42,14 @@ func (s *Service) InitDatabase() error {
 		return nil, nil
 	})
 
+	// init algo engine
+	s.engine = algo.NewEngine(s.neo4j.GetDriver())
+
 	return err
 }
 
-func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry {
-	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
-		ctx := context.Background()
-
-		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.content, p.created_at, score;",
-			map[string]any{
-				"Start": start.Unix(),
-				"End":   end.Unix(),
-				"Limit": limit,
-			})
-
-		if err != nil {
-			return nil, err
-		}
-
-		posts := make([]FeedEntry, 0)
-		for result.Next(ctx) {
-			record := result.Record()
-			post := FeedEntry{
-				Id:        record.Values[0].(string),
-				Kind:      int(record.Values[1].(int64)),
-				Pubkey:    record.Values[2].(string),
-				Content:   record.Values[3].(string),
-				CreatedAt: time.Unix(record.Values[4].(int64), 0),
-				Score:     int(record.Values[5].(int64)),
-			}
-			posts = append(posts, post)
-		}
-		return posts, nil
-	})
-
-	if err != nil {
-		log.Error("Failed to get feed", "err", err)
-		return nil
-	} else {
-		return posts.([]FeedEntry)
-	}
+func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit int) []algo.FeedEntry {
+	return s.engine.GetFeed(userPub, start, end, limit)
 }
 
 func (s *Service) StoreEvent(event *nostr.Event) error {

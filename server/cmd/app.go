@@ -87,7 +87,10 @@ func (app *Application) listenAndServe() {
 }
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
-	doResponse(w, false, "Not implemented")
+	userPub := r.URL.Query().Get("pubkey")
+
+	feed := app.service.GetFeed(userPub, time.Now().Add(-1*time.Hour), time.Now(), 10)
+	doResponse(w, true, feed)
 }
 
 func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
