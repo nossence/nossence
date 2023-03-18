@@ -102,14 +102,14 @@ func (app *Application) handleBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
-	userPub := r.URL.Query().Get("pubkey")
+	subscriberPub := r.URL.Query().Get("pubkey")
 
-	subscriber := app.service.GetSubscriber(userPub)
+	subscriber := app.service.GetSubscriber(subscriberPub)
 	if subscriber == nil {
-		doResponse(w, false, "user not found")
+		doResponse(w, false, "subscriber not found")
 	}
 
-	app.bot.Worker.Run(r.Context(), userPub, subscriber.ChannelSecret, time.Hour, 10)
+	app.bot.Worker.Run(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10)
 	doResponse(w, true, "pushed")
 }
 

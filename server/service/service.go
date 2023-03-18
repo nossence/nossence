@@ -21,7 +21,7 @@ type Service struct {
 }
 
 type IService interface {
-	GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry
+	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry
 	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
 }
 
@@ -56,7 +56,7 @@ func (s *Service) InitDatabase() error {
 	return err
 }
 
-func (s *Service) GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry {
+func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry {
 	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 

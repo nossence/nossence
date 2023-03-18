@@ -106,7 +106,7 @@ func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 // Repost an event
 func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) error {
 	note, _ := nip19.EncodeNote(eventID)
-	logger.Info("reposting event", "event_id", eventID, "note", note, "sk", sk, "author_pub", authorPub)
+	logger.Info("reposting event", "event_id", eventID, "note", note, "author_pub", authorPub)
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return err
