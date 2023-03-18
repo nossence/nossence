@@ -144,9 +144,11 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 func (b *Bot) GetOrCreateSubSK(ctx context.Context, userPub string) (string, bool, error) {
 	subscriber := b.service.GetSubscriber(userPub)
 	if subscriber != nil {
+		logger.Info("found existing subscriber", "pubkey", userPub)
 		return subscriber.ChannelSecret, false, nil
 	}
 
+	logger.Info("creating new subscriber", "pubkey", userPub)
 	subSK := nostr.GeneratePrivateKey()
 	err := b.service.CreateSubscriber(userPub, subSK, time.Now())
 	if err != nil {

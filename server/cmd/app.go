@@ -79,6 +79,7 @@ func (app *Application) listenAndServe() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/feed", app.handleFeed)
 	mux.HandleFunc("/push", app.handlePush)
+	mux.HandleFunc("/batch", app.handleBatch)
 
 	log.Info("Server started")
 	err := http.ListenAndServe(":8080", mux)

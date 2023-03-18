@@ -22,7 +22,7 @@ type Service struct {
 
 type IService interface {
 	GetFeed(userPub string, start time.Time, end time.Time, limit int) []FeedEntry
-	ListSubscribers(ctx context.Context, limit, skip int) ([]*types.Subscriber, error)
+	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
 }
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
@@ -281,7 +281,7 @@ func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.T
 	return err
 }
 
-func (s *Service) ListSubscribers(ctx context.Context, limit, skip int) ([]*types.Subscriber, error) {
+func (s *Service) ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error) {
 	subscribers, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 
@@ -326,7 +326,7 @@ func (s *Service) ListSubscribers(ctx context.Context, limit, skip int) ([]*type
 		return nil, err
 	}
 
-	return subscribers.([]*types.Subscriber), nil
+	return subscribers.([]types.Subscriber), nil
 }
 
 func (s *Service) GetSubscriber(pubkey string) *types.Subscriber {
