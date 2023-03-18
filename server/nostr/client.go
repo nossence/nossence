@@ -18,7 +18,7 @@ type Client struct {
 }
 
 type IClient interface {
-	Repost(ctx context.Context, sk, id, author string) error
+	Repost(ctx context.Context, sk, id, author, raw string) error
 }
 
 func DecodeNsec(nsec string) (string, error) {
@@ -104,9 +104,9 @@ func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 }
 
 // Repost an event
-func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) error {
+func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub, raw string) error {
 	note, _ := nip19.EncodeNote(eventID)
-	logger.Debug("reposting event", "event_id", eventID, "note", note, "author_pub", authorPub)
+	logger.Info("reposting event", "event_id", eventID, "note", note, "author_pub", authorPub, "raw", raw)
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return err
@@ -126,7 +126,9 @@ func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub string) erro
 			nostr.Tag{"e", eventID, "", "mention"},
 			nostr.Tag{"p", authorPub},
 		},
-		Content:   "",
+		// To align with repost requirement on Damus, there's needs
+		// to set the raw origin event in content field
+		Content:   raw,
 		CreatedAt: time.Now(),
 	}
 

@@ -80,8 +80,14 @@ func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, 
 				Kind:      int(record.Values[1].(int64)),
 				Pubkey:    record.Values[2].(string),
 				CreatedAt: time.Unix(record.Values[3].(int64), 0),
-				Raw:       record.Values[4].(string),
-				Score:     int(record.Values[5].(int64)),
+				Raw: func() string {
+					if v, ok := record.Values[4].(string); ok {
+						return v
+					}
+
+					return ""
+				}(),
+				Score: int(record.Values[5].(int64)),
 			}
 			posts = append(posts, post)
 		}
