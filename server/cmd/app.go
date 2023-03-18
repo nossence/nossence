@@ -94,8 +94,8 @@ func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *Application) handleBatch(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"), 10)
-	skip, _ := strconv.Atoi(r.URL.Query().Get("skip"), 10)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
 	app.bot.Worker.Batch(r.Context(), limit, skip)
 	doResponse(w, true, "dispatched")
 }
