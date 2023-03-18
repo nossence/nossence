@@ -135,6 +135,7 @@ func NewBot(ctx context.Context, client n.IClient, service service.IService, sk 
 }
 
 func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
+	logger.Info("Listen to subscribe message", "pubkey", b.pub)
 	now := time.Now()
 	filters := nostr.Filters{
 		nostr.Filter{
