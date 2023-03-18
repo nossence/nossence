@@ -3,7 +3,6 @@ package nostr
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,22 +11,12 @@ import (
 )
 
 func getRelayURIs() []string {
-	return strings.Split(os.Getenv("NOSTR_RELAY_URI"), ",")
+	return []string{"ws://localhost:8090"}
 }
 
 func getIdentity() (sk, pub string) {
-	myPrivateKey := os.Getenv("NOSTR_PRIVATE_KEY")
-
-	sk, err := DecodeNsec(myPrivateKey)
-	if err != nil {
-		return
-	}
-
-	pub, err = nostr.GetPublicKey(sk)
-	if err != nil {
-		return
-	}
-
+	sk = nostr.GeneratePrivateKey()
+	pub, _ = nostr.GetPublicKey(sk)
 	return
 }
 
@@ -101,10 +90,11 @@ func TestRepost(t *testing.T) {
 	client, err := NewClient(context.Background(), getRelayURIs())
 	assert.NoError(t, err)
 
-	sk, pub := getIdentity()
+	sk, _ := getIdentity()
 	assert.NoError(t, err)
-	eventID := "db3daf21b32bc40beec979343d8a139175c14e62f2e9c7e84528b24dc79e5349"
-	authorPub := pub
-	err = client.Repost(context.Background(), sk, eventID, authorPub)
+	eventID := "foo"
+	authorPub := "bar"
+	raw := ""
+	err = client.Repost(context.Background(), sk, eventID, authorPub, raw)
 	assert.NoError(t, err)
 }
