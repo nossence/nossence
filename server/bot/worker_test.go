@@ -25,7 +25,7 @@ func TestWorkerRun(t *testing.T) {
 		},
 	})
 
-	worker, err := NewWorker(context.Background(), mockClient, mockService)
+	worker, err := NewWorker(context.Background(), mockClient, mockService, nil)
 	assert.NoError(t, err)
 
 	worker.Push(context.Background(), "subscriber_pub", "channel_secret", time.Hour, 10)

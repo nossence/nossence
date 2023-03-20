@@ -25,6 +25,7 @@ type Application struct {
 	service *service.Service
 	crawler *nostr.Crawler
 	bot     *bot.BotApplication
+	nserver *nostr.NameServer
 }
 
 type response struct {
@@ -43,12 +44,14 @@ func NewApplication() *Application {
 	service := service.NewService(config, neo4j)
 	crawler := nostr.NewCrawler(config, service)
 	bot := bot.NewBotApplication(config, service)
+	nserver := nostr.NewNameServer(config, neo4j)
 	return &Application{
 		config:  config,
 		neo4j:   neo4j,
 		service: service,
 		crawler: crawler,
 		bot:     bot,
+		nserver: nserver,
 	}
 }
 
@@ -79,6 +82,7 @@ func (app *Application) listenAndServe() {
 	mux.HandleFunc("/push", app.handlePush)
 	mux.HandleFunc("/batch", app.handleBatch)
 	mux.HandleFunc("/run", app.handleRun)
+	mux.HandleFunc("/.well-known/nostr.json", app.nserver.Serve)
 
 	log.Info("Server started")
 	err := http.ListenAndServe(":8080", mux)
