@@ -17,6 +17,11 @@ import (
 
 var logger = log.New("module", "bot")
 
+const (
+	PushInterval = time.Hour
+	PushSize     = 5
+)
+
 type BotApplication struct {
 	Bot    *Bot
 	config *types.Config

@@ -10,11 +10,6 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-const (
-	PushInterval = time.Hour
-	PushSize     = 10
-)
-
 type Worker struct {
 	config  *types.Config
 	client  n.IClient
