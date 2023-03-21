@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path"
 	"time"
 
 	"github.com/dyng/nosdaily/database"
@@ -24,7 +26,7 @@ type Service struct {
 }
 
 type IService interface {
-	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []algo.FeedEntry
+	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry
 	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
 	GetSubscriber(pubkey string) *types.Subscriber
 	CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error
@@ -57,8 +59,26 @@ func (s *Service) InitDatabase() error {
 	return err
 }
 
-func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []algo.FeedEntry {
-	return s.engine.GetFeed(subscriberPub, start, end, limit)
+func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry {
+	posts := s.engine.GetFeed(subscriberPub, start, end, limit)
+	feed := make([]types.FeedEntry, 0, len(posts))
+	for _, post := range posts {
+		raw, err := s.readObject(post.Id)
+		if err != nil {
+			log.Error("Failed to read object", "id", post.Id, "err", err)
+			continue
+		}
+
+		feed = append(feed, types.FeedEntry{
+			Id: post.Id,
+			Kind: post.Kind,
+			Pubkey: post.Pubkey,
+			CreatedAt: post.CreatedAt,
+			Score: post.Score,
+			Raw: raw,
+		})
+	}
+	return feed
 }
 
 func (s *Service) StoreEvent(event *nostr.Event) error {
@@ -211,19 +231,18 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 		return err
 	}
 
-	raw, err := json.Marshal(event)
+	err := s.writeObject(event)
 	if err != nil {
-		logger.Warn("failed to marshal event", "event", event, "err", err)
+		log.Error("Failed to write object", "id", event.ID, "err", err)
 		return err
 	}
 
-	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, raw: $Raw, created_at: $CreatedAt});",
+	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, created_at: $CreatedAt});",
 		map[string]any{
 			"Id":        event.ID,
 			"Kind":      event.Kind,
 			"Author":    event.PubKey,
 			"CreatedAt": event.CreatedAt.Unix(),
-			"Raw":       string(raw),
 		}); err != nil {
 		return err
 	}
@@ -237,6 +256,34 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 	}
 
 	return nil
+}
+
+func (s *Service) writeObject(event *nostr.Event) error {
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	path, dir := s.objPath(event.ID)
+	os.MkdirAll(dir, 0755)
+	return os.WriteFile(path, raw, 0644)
+}
+
+func (s *Service) readObject(id string) (string, error) {
+	file, _ := s.objPath(id)
+	bytes, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+func (s *Service) objPath(id string) (file string, dir string) {
+	prefix := id[:4]
+	name := id[4:]
+	file = path.Join(s.config.Objects.Root, "objects", prefix, name)
+	dir = path.Join(s.config.Objects.Root, "objects", prefix)
+	return
 }
 
 func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error {

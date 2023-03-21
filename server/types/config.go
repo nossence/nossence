@@ -33,9 +33,14 @@ type LogConfig struct {
 	Path  string `default:"console"`
 }
 
+type ObjectsConfig struct {
+	Root string `default:"/var/data/nossence"`
+}
+
 type Config struct {
 	Log     LogConfig
 	Neo4j   Neo4jConfig
 	Crawler CrawlerConfig
+	Objects ObjectsConfig
 	Bot     BotConfig
 }
