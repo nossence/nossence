@@ -279,8 +279,8 @@ func (s *Service) readObject(id string) (string, error) {
 }
 
 func (s *Service) objPath(id string) (file string, dir string) {
-	prefix := id[:4]
-	name := id[4:]
+	prefix := id[:3]
+	name := id[3:]
 	file = path.Join(s.config.Objects.Root, "objects", prefix, name)
 	dir = path.Join(s.config.Objects.Root, "objects", prefix)
 	return
