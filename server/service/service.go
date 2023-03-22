@@ -85,6 +85,8 @@ func (s *Service) StoreEvent(event *nostr.Event) error {
 	switch event.Kind {
 	case 1:
 		return s.StorePost(event)
+	case 6:
+		return s.StoreRepost(event)
 	case 7:
 		return s.StoreLike(event)
 	case 3:
@@ -139,6 +141,34 @@ func (s *Service) StoreLike(event *nostr.Event) error {
 		if len(refs) > 0 {
 			ref := refs[0]
 			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:LIKE]->(r);",
+				map[string]any{
+					"Id":    event.ID,
+					"RefId": ref.Value(),
+				}); err != nil {
+				return nil, err
+			}
+		}
+
+		return nil, nil
+	})
+
+	return err
+}
+
+func (s *Service) StoreRepost(event *nostr.Event) error {
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		// create user & post
+		if err := s.saveUserAndPost(ctx, tx, event); err != nil {
+			return nil, err
+		}
+
+		// create repost relation
+		refs := event.Tags.GetAll([]string{"e"})
+		if len(refs) > 0 {
+			ref := refs[0]
+			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:REPOST]->(r);",
 				map[string]any{
 					"Id":    event.ID,
 					"RefId": ref.Value(),

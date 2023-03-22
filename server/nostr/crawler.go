@@ -63,6 +63,7 @@ func (c *Crawler) AddRelay(url string) {
 					log.Error("Failed to subscribe to relay", "url", url, "err", err)
 					return
 				}
+				log.Info("Reconnected to relay", "url", url)
 			}
 		}
 	}()
@@ -80,13 +81,13 @@ func (c *Crawler) subscribe(url string, since time.Time, limit int) (*relayConne
 	var filter nostr.Filter
 	if limit != 0 {
 		filter = nostr.Filter{
-			Kinds: []int{1, 3, 7, 9735},
+			Kinds: []int{1, 3, 6, 7, 9735},
 			Since: &since,
 			Limit: limit,
 		}
 	} else {
 		filter = nostr.Filter{
-			Kinds: []int{1, 3, 7, 9735},
+			Kinds: []int{1, 3, 6, 7, 9735},
 			Since: &since,
 		}
 	}
