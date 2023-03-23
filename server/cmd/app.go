@@ -146,7 +146,19 @@ func loadConfig() *types.Config {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	setDefaultValue(config)
 	return config
+}
+
+// set some default values that cannot be parsed by struct tags
+func setDefaultValue(config *types.Config) {
+	if config.Bot.Metadata.About == "" {
+		config.Bot.Metadata.About = "A recommender engine for nostr. Follow this account and post '@nossence #subscribe' to get your own feed!"
+	}
+
+	if config.Bot.Metadata.ChannelAbout == "" {
+		config.Bot.Metadata.ChannelAbout = "nossence curated content for %s powered by %s"
+	}
 }
 
 func initLogger(config *types.Config) {

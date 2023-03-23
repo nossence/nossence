@@ -8,11 +8,11 @@ type BotConfig struct {
 
 type MetadataConfig struct {
 	Name           string `default:"nossence"`
-	About          string `default:"a recommender engine for nostr"`
+	About          string
 	Picture        string
 	Nip05          string
 	ChannelName    string `default:"nossence curator"`
-	ChannelAbout   string `default:"nossence curated content for %s"`
+	ChannelAbout   string
 	ChannelPicture string
 }
 

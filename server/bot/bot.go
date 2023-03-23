@@ -206,9 +206,10 @@ func (b *Bot) createSubscription(ctx context.Context, subscriberPub string) (str
 
 	// send set_metadata event
 	npub, _ := nip19.EncodePublicKey(subscriberPub)
+	mainNpub, _ := nip19.EncodePublicKey(b.pub)
 	err = b.client.Metadata(ctx, channelSK,
 		metadata.ChannelName,
-		fmt.Sprintf(metadata.ChannelAbout, npub),
+		fmt.Sprintf(metadata.ChannelAbout, npub, mainNpub),
 		metadata.ChannelPicture, "")
 	if err != nil {
 		return "", err
