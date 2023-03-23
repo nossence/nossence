@@ -76,40 +76,45 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 }
 
 func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event {
-	subs := map[string]*nostr.Subscription{}
 	ch := make(chan nostr.Event)
 	for uri, r := range c.Relays {
 		logger.Info("subscribing to relay", "uri", uri)
 		sub := r.Subscribe(ctx, filters)
-		subs[uri] = sub
 
-		go func(uri string, r *nostr.Relay, sub *nostr.Subscription) {
+		// FIXME: fragile, need to refactor
+		go func(uri string, relay *nostr.Relay, subscription *nostr.Subscription) {
 			for {
 				select {
-				case ev := <-sub.Events:
+				case ev := <-subscription.Events:
 					ch <- *ev
-				case notice := <- r.Notices:
+				case notice := <-relay.Notices:
 					logger.Warn("relay notice", "uri", uri, "notice", notice)
-				case err := <- r.ConnectionError:
+				case err := <-relay.ConnectionError:
 					logger.Error("relay connection error, try to reconnect", "uri", uri, "err", err)
 
 					// try to reconnect for at most 5 times
+					reconnected := false
 					for i := 0; i < 5; i++ {
-						r, err := nostr.RelayConnect(ctx, uri)
+						relay, err = nostr.RelayConnect(ctx, uri)
 						if err != nil {
-							logger.Warn("failed to reconnect to relay, retrying...", "uri", uri, "err", err)
-							time.Sleep(10 * time.Second)
+							time.Sleep(30 * time.Second)
 							continue
 						}
-						c.Relays[uri] = r
-						sub = r.Subscribe(ctx, filters)
-						subs[uri] = sub
+
+						// if reconnected, close the old subscription and create a new one
+						c.Relays[uri] = relay
+						subscription = relay.Subscribe(ctx, filters)
+						reconnected = true
 						break
 					}
 
-					// if still failed, close the channel
-					logger.Error("failed to reconnect to relay, closing channel", "uri", uri)
-					return
+					if !reconnected {
+						// if still failed, close the channel
+						logger.Error("failed to reconnect to relay, closing channel", "uri", uri)
+						return
+					} else {
+						logger.Info("reconnected to relay", "uri", uri)
+					}
 				}
 			}
 		}(uri, r, sub)
@@ -122,8 +127,13 @@ func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan n
 func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 	for uri, r := range c.Relays {
 		status := r.Publish(ctx, ev)
-		if status == nostr.PublishStatusFailed {
-			logger.Error("failed to publish event to relay, skipping...", "uri", uri, "ev", ev)
+		switch status {
+		case nostr.PublishStatusSucceeded:
+			logger.Debug("published event to relay", "uri", uri, "id", ev.ID)
+		case nostr.PublishStatusFailed:
+			logger.Error("failed to publish event to relay, skipping...", "uri", uri, "id", ev.ID)
+		case nostr.PublishStatusSent:
+			logger.Warn("sent event to relay", "uri", uri, "id", ev.ID)
 		}
 	}
 	return nil
