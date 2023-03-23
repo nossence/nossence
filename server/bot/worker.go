@@ -6,16 +6,19 @@ import (
 
 	n "github.com/dyng/nosdaily/nostr"
 	"github.com/dyng/nosdaily/service"
+	"github.com/dyng/nosdaily/types"
 	"github.com/nbd-wtf/go-nostr"
 )
 
 type Worker struct {
+	config  *types.Config
 	client  n.IClient
 	service service.IService
 }
 
-func NewWorker(ctx context.Context, client n.IClient, service service.IService) (*Worker, error) {
+func NewWorker(ctx context.Context, client n.IClient, service service.IService, config *types.Config) (*Worker, error) {
 	return &Worker{
+		config:  config,
 		client:  client,
 		service: service,
 	}, nil
@@ -25,14 +28,29 @@ func (w *Worker) Run(ctx context.Context) error {
 	limit := 10
 	skip := 0
 	hasNext := true
+	var err error
+
+	err = w.UpdateMain(ctx)
+	if err != nil {
+		logger.Error("error occurs in main update", "err", err)
+	}
 
 	for hasNext {
-		hasNext, _ = w.Batch(ctx, limit, skip)
+		hasNext, err = w.Batch(ctx, limit, skip)
+		if err != nil {
+			logger.Error("error occurs during batch execution", "err", err)
+		}
 		skip += limit
 	}
 
 	logger.Info("run finished")
 	return nil
+}
+
+func (w *Worker) UpdateMain(ctx context.Context) error {
+	logger.Info("updating main channel")
+	mainSK := w.config.Bot.SK
+	return w.Push(ctx, "", mainSK, PushInterval, PushSize)
 }
 
 func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err error) {
@@ -47,7 +65,7 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err 
 			logger.Info("skipping non subscriber", "pubkey", subscriber.Pubkey)
 			continue
 		}
-		err = w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, time.Hour, 10)
+		err = w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, PushInterval, PushSize)
 		if err != nil {
 			logger.Warn("failed to run worker for subscriber", "pubkey", subscriber.Pubkey, "err", err)
 		}
@@ -57,10 +75,9 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err 
 }
 
 func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, timeRange time.Duration, limit int) error {
-	_ = timeRange
-	_ = limit
-	start := time.Now().Add(-time.Hour)
+	start := time.Now().Add(-1 * timeRange)
 	end := time.Now()
+	logger.Debug("start to repost feed", "userPub", subscriberPub, "start", start, "end", end, "limit", limit)
 	feed := w.service.GetFeed(subscriberPub, start, end, limit)
 	if len(feed) == 0 {
 		logger.Warn("got empty feed", "subscriberPub", subscriberPub)

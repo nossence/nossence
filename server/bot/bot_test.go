@@ -6,6 +6,7 @@ import (
 
 	n "github.com/dyng/nosdaily/nostr"
 	"github.com/dyng/nosdaily/service"
+	"github.com/dyng/nosdaily/types"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/stretchr/testify/assert"
 )
@@ -13,12 +14,25 @@ import (
 var botSK = nostr.GeneratePrivateKey()
 var subscriberSK = nostr.GeneratePrivateKey()
 var relays = []string{"ws://localhost:8090"}
+var config = &types.Config{
+	Bot: types.BotConfig{
+		Relays: relays,
+		SK:     botSK,
+		Metadata: types.MetadataConfig{
+			Name:    "nossence",
+			About:   "a recommender engine for nostr",
+			ChannelName: "nossence for %s",
+			ChannelAbout: "nossence curated content for %s",
+			Picture: "",
+		},
+	},
+}
 
 func TestNewBot(t *testing.T) {
 	mockClient := new(n.MockClient)
 	mockService := new(service.MockService)
 
-	bot, err := NewBot(context.Background(), mockClient, mockService, botSK)
+	bot, err := NewBot(context.Background(), mockClient, mockService, config)
 	assert.NoError(t, err)
 	assert.NotNil(t, bot)
 }
@@ -28,7 +42,7 @@ func TestListen(t *testing.T) {
 	mockClient := new(n.MockClient)
 	mockService := new(service.MockService)
 
-	bot, err := NewBot(context.Background(), mockClient, mockService, botSK)
+	bot, err := NewBot(context.Background(), mockClient, mockService, config)
 	assert.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -65,7 +79,7 @@ func TestGetOrCreateSubscription(t *testing.T) {
 	mockClient := new(n.MockClient)
 	mockService := new(service.MockService)
 
-	bot, err := NewBot(context.Background(), mockClient, mockService, botSK)
+	bot, err := NewBot(context.Background(), mockClient, mockService, config)
 	assert.NoError(t, err)
 
 	subscriberPub, err := nostr.GetPublicKey(subscriberSK)
@@ -91,7 +105,7 @@ func TestSendWelcomeMessage(t *testing.T) {
 	subscriberPub, err := nostr.GetPublicKey(subscriberSK)
 	assert.NoError(t, err)
 
-	bot, err := NewBot(context.Background(), mockClient, mockService, botSK)
+	bot, err := NewBot(context.Background(), mockClient, mockService, config)
 	assert.NoError(t, err)
 
 	// c := client.Subscribe(context.Background(), []nostr.Filter{

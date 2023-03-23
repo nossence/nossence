@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -10,10 +11,16 @@ import (
 	"github.com/dyng/nosdaily/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/robfig/cron/v3"
 )
 
 var logger = log.New("module", "bot")
+
+const (
+	PushInterval = time.Hour
+	PushSize     = 5
+)
 
 type BotApplication struct {
 	Bot    *Bot
@@ -24,6 +31,7 @@ type BotApplication struct {
 type Bot struct {
 	client  n.IClient
 	service service.IService
+	config  *types.Config
 	SK      string
 	pub     string
 }
@@ -36,12 +44,12 @@ func NewBotApplication(config *types.Config, service *service.Service) *BotAppli
 		panic(err)
 	}
 
-	bot, err := NewBot(ctx, client, service, config.Bot.SK)
+	bot, err := NewBot(ctx, client, service, config)
 	if err != nil {
 		panic(err)
 	}
 
-	worker, err := NewWorker(ctx, client, service)
+	worker, err := NewWorker(ctx, client, service, config)
 	if err != nil {
 		panic(err)
 	}
@@ -87,8 +95,12 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 				}
 
 				if new {
-					ba.Bot.SendWelcomeMessage(ctx, channelSK, ev.PubKey)
-					logger.Info("sent welcome message to new subscriber", "pubkey", ev.PubKey)
+					err := ba.Bot.SendWelcomeMessage(ctx, channelSK, ev.PubKey)
+					if err != nil {
+						logger.Error("failed to send welcome message", "pubkey", ev.PubKey, "err", err)
+					} else {
+						logger.Info("sent welcome message to new subscriber", "pubkey", ev.PubKey)
+					}
 				} else {
 					restored, err := ba.Bot.RestoreSubscription(ctx, ev.PubKey)
 					if err != nil {
@@ -105,6 +117,12 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 						logger.Info("skip welcome message for existing subscriber", "pubkey", ev.PubKey)
 					}
 				}
+
+				// prepare initial content for first subscription
+				err = ba.Worker.Push(ctx, ev.PubKey, channelSK, PushInterval, PushSize)
+				if err != nil {
+					logger.Error("failed to prepare initial content", "pubkey", ev.PubKey, "err", err)
+				}
 			} else if strings.Contains(ev.Content, "#unsubscribe") {
 				logger.Warn("unsubscribing", "pubkey", ev.PubKey)
 				ba.Bot.TerminateSubscription(ctx, ev.PubKey)
@@ -120,7 +138,8 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 	return nil
 }
 
-func NewBot(ctx context.Context, client n.IClient, service service.IService, sk string) (*Bot, error) {
+func NewBot(ctx context.Context, client n.IClient, service service.IService, config *types.Config) (*Bot, error) {
+	sk := config.Bot.SK
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return nil, err
@@ -128,6 +147,7 @@ func NewBot(ctx context.Context, client n.IClient, service service.IService, sk 
 
 	return &Bot{
 		client:  client,
+		config:  config,
 		SK:      sk,
 		pub:     pub,
 		service: service,
@@ -135,6 +155,16 @@ func NewBot(ctx context.Context, client n.IClient, service service.IService, sk 
 }
 
 func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
+	// set user metadata
+	logger.Info("Create account metadata", "pubkey", b.pub)
+	metadata := b.config.Bot.Metadata
+	err := b.client.Metadata(ctx, b.SK, metadata.Name, metadata.About, metadata.Picture, metadata.Nip05)
+	if err != nil {
+		logger.Error("failed to set account metadata", "err", err)
+	}
+
+	// listen to subscription message
+	logger.Info("Listen to subscription message", "pubkey", b.pub)
 	now := time.Now()
 	filters := nostr.Filters{
 		nostr.Filter{
@@ -156,13 +186,36 @@ func (b *Bot) GetOrCreateSubscription(ctx context.Context, subscriberPub string)
 	}
 
 	logger.Info("creating new subscriber", "pubkey", subscriberPub)
-	channelSK := nostr.GeneratePrivateKey()
-	err := b.service.CreateSubscriber(subscriberPub, channelSK, time.Now())
+	channelSK, err := b.createSubscription(ctx, subscriberPub)
 	if err != nil {
 		return "", false, err
 	}
 
 	return channelSK, true, nil
+}
+
+func (b *Bot) createSubscription(ctx context.Context, subscriberPub string) (string, error) {
+	metadata := b.config.Bot.Metadata
+	channelSK := nostr.GeneratePrivateKey()
+
+	// save secret key to db
+	err := b.service.CreateSubscriber(subscriberPub, channelSK, time.Now())
+	if err != nil {
+		return "", err
+	}
+
+	// send set_metadata event
+	npub, _ := nip19.EncodePublicKey(subscriberPub)
+	mainNpub, _ := nip19.EncodePublicKey(b.pub)
+	err = b.client.Metadata(ctx, channelSK,
+		metadata.ChannelName,
+		fmt.Sprintf(metadata.ChannelAbout, npub, mainNpub),
+		metadata.ChannelPicture, "")
+	if err != nil {
+		return "", err
+	}
+
+	return channelSK, nil
 }
 
 func (b *Bot) TerminateSubscription(ctx context.Context, subscriberPub string) error {
@@ -179,7 +232,7 @@ func (b *Bot) SendWelcomeMessage(ctx context.Context, channelSK, receiverPub str
 		return err
 	}
 
-	msg := "Hello, #[0]! Your nossence recommendations is ready, follow: #[1] to fetch your own feed."
+	msg := "Hello, #[0]! Your nossence curator is ready, follow: #[1] to fetch your own feed."
 	return b.client.Mention(ctx, b.SK, msg, []string{
 		receiverPub,
 		channelPub,

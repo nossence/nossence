@@ -2,6 +2,7 @@ package nostr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -21,6 +22,7 @@ type IClient interface {
 	Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event
 	Repost(ctx context.Context, sk, id, author, raw string) error
 	Mention(ctx context.Context, sk, msg string, mentions []string) error
+	Metadata(ctx context.Context, sk, name, about, picture, nip05 string) error
 }
 
 func DecodeNsec(nsec string) (string, error) {
@@ -74,21 +76,49 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 }
 
 func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event {
-	subs := map[string]*nostr.Subscription{}
+	ch := make(chan nostr.Event)
 	for uri, r := range c.Relays {
 		logger.Info("subscribing to relay", "uri", uri)
 		sub := r.Subscribe(ctx, filters)
-		subs[uri] = sub
-	}
 
-	ch := make(chan nostr.Event)
-	go func(chan<- nostr.Event, map[string]*nostr.Subscription) {
-		for _, sub := range subs {
-			for e := range sub.Events {
-				ch <- *e
+		// FIXME: fragile, need to refactor
+		go func(uri string, relay *nostr.Relay, subscription *nostr.Subscription) {
+			for {
+				select {
+				case ev := <-subscription.Events:
+					ch <- *ev
+				case notice := <-relay.Notices:
+					logger.Warn("relay notice", "uri", uri, "notice", notice)
+				case err := <-relay.ConnectionError:
+					logger.Error("relay connection error, try to reconnect", "uri", uri, "err", err)
+
+					// try to reconnect for at most 5 times
+					reconnected := false
+					for i := 0; i < 5; i++ {
+						relay, err = nostr.RelayConnect(ctx, uri)
+						if err != nil {
+							time.Sleep(30 * time.Second)
+							continue
+						}
+
+						// if reconnected, close the old subscription and create a new one
+						c.Relays[uri] = relay
+						subscription = relay.Subscribe(ctx, filters)
+						reconnected = true
+						break
+					}
+
+					if !reconnected {
+						// if still failed, close the channel
+						logger.Error("failed to reconnect to relay, closing channel", "uri", uri)
+						return
+					} else {
+						logger.Info("reconnected to relay", "uri", uri)
+					}
+				}
 			}
-		}
-	}(ch, subs)
+		}(uri, r, sub)
+	}
 
 	return ch
 }
@@ -97,9 +127,13 @@ func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan n
 func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 	for uri, r := range c.Relays {
 		status := r.Publish(ctx, ev)
-		if status == nostr.PublishStatusFailed {
-			logger.Warn("failed to publish event to relay, skipping...", "uri", uri, "ev", ev)
-			return nil
+		switch status {
+		case nostr.PublishStatusSucceeded:
+			logger.Debug("published event to relay", "uri", uri, "id", ev.ID)
+		case nostr.PublishStatusFailed:
+			logger.Error("failed to publish event to relay, skipping...", "uri", uri, "id", ev.ID)
+		case nostr.PublishStatusSent:
+			logger.Warn("sent event to relay", "uri", uri, "id", ev.ID)
 		}
 	}
 	return nil
@@ -165,6 +199,42 @@ func (c *Client) Mention(ctx context.Context, sk, msg string, mentions []string)
 		Kind:      1,
 		Tags:      mentionTags,
 		Content:   msg,
+	}
+
+	err = ev.Sign(sk)
+	if err != nil {
+		return err
+	}
+
+	return c.Publish(ctx, ev)
+}
+
+func (c *Client) Metadata(ctx context.Context, sk, name, about, picture, nip05 string) error {
+	senderPub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
+	content := map[string]string{
+		"name":         name,
+		"username":     name,
+		"display_name": name,
+		"about":        about,
+		"picture":      picture,
+	}
+	if nip05 != "" {
+		content["nip05"] = nip05
+	}
+	contentJson, err := json.Marshal(content)
+	if err != nil {
+		return err
+	}
+
+	ev := nostr.Event{
+		PubKey:    senderPub,
+		CreatedAt: time.Now(),
+		Kind:      0,
+		Content:   string(contentJson),
 	}
 
 	err = ev.Sign(sk)

@@ -12,9 +12,9 @@ type MockService struct {
 	mock.Mock
 }
 
-func (m *MockService) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry {
+func (m *MockService) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry {
 	args := m.Called(subscriberPub, start, end, limit)
-	return args.Get(0).([]FeedEntry)
+	return args.Get(0).([]types.FeedEntry)
 }
 
 func (m *MockService) ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error) {

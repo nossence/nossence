@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path"
 	"time"
 
 	"github.com/dyng/nosdaily/database"
 	"github.com/dyng/nosdaily/types"
+	algo "github.com/dyng/nossence-algo"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
@@ -19,10 +22,11 @@ var logger = log.New("module", "service")
 type Service struct {
 	config *types.Config
 	neo4j  *database.Neo4jDb
+	engine *algo.Engine
 }
 
 type IService interface {
-	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry
+	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry
 	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
 	GetSubscriber(pubkey string) *types.Subscriber
 	CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error
@@ -37,15 +41,6 @@ func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
 	}
 }
 
-type FeedEntry struct {
-	Id        string    `json:"event_id"`
-	Kind      int       `json:"kind"`
-	Pubkey    string    `json:"pubkey"`
-	CreatedAt time.Time `json:"created_at"`
-	Score     int       `json:"score"`
-	Raw       string    `json:"raw"`
-}
-
 func (s *Service) InitDatabase() error {
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
@@ -58,58 +53,40 @@ func (s *Service) InitDatabase() error {
 		return nil, nil
 	})
 
+	// init algo engine
+	s.engine = algo.NewEngine(s.neo4j.GetDriver())
+
 	return err
 }
 
-func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []FeedEntry {
-	posts, err := s.neo4j.ExecuteRead(func(tx neo4j.ManagedTransaction) (any, error) {
-		ctx := context.Background()
-
-		result, err := tx.Run(ctx, "match (p:Post) where p.created_at > $Start and p.created_at < $End optional match (r1:Post)-[:REPLY]->(p) optional match (r2:Post)-[:LIKE]->(p) optional match (r3:Post)-[:ZAP]->(p) with p, count(distinct r1.author)*15+count(distinct r2.author)*10+count(distinct r3.author)*50 as score order by score desc limit $Limit return p.id, p.kind, p.author, p.created_at, p.raw, score;",
-			map[string]any{
-				"Start": start.Unix(),
-				"End":   end.Unix(),
-				"Limit": limit,
-			})
-
+func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry {
+	posts := s.engine.GetFeed(subscriberPub, start, end, limit)
+	feed := make([]types.FeedEntry, 0, len(posts))
+	for _, post := range posts {
+		raw, err := s.readObject(post.Id)
 		if err != nil {
-			return nil, err
+			log.Error("Failed to read object", "id", post.Id, "err", err)
+			continue
 		}
 
-		posts := make([]FeedEntry, 0)
-		for result.Next(ctx) {
-			record := result.Record()
-			post := FeedEntry{
-				Id:        record.Values[0].(string),
-				Kind:      int(record.Values[1].(int64)),
-				Pubkey:    record.Values[2].(string),
-				CreatedAt: time.Unix(record.Values[3].(int64), 0),
-				Raw: func() string {
-					if v, ok := record.Values[4].(string); ok {
-						return v
-					}
-
-					return ""
-				}(),
-				Score: int(record.Values[5].(int64)),
-			}
-			posts = append(posts, post)
-		}
-		return posts, nil
-	})
-
-	if err != nil {
-		logger.Error("Failed to get feed", "err", err)
-		return nil
-	} else {
-		return posts.([]FeedEntry)
+		feed = append(feed, types.FeedEntry{
+			Id: post.Id,
+			Kind: post.Kind,
+			Pubkey: post.Pubkey,
+			CreatedAt: post.CreatedAt,
+			Score: post.Score,
+			Raw: raw,
+		})
 	}
+	return feed
 }
 
 func (s *Service) StoreEvent(event *nostr.Event) error {
 	switch event.Kind {
 	case 1:
 		return s.StorePost(event)
+	case 6:
+		return s.StoreRepost(event)
 	case 7:
 		return s.StoreLike(event)
 	case 3:
@@ -164,6 +141,34 @@ func (s *Service) StoreLike(event *nostr.Event) error {
 		if len(refs) > 0 {
 			ref := refs[0]
 			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:LIKE]->(r);",
+				map[string]any{
+					"Id":    event.ID,
+					"RefId": ref.Value(),
+				}); err != nil {
+				return nil, err
+			}
+		}
+
+		return nil, nil
+	})
+
+	return err
+}
+
+func (s *Service) StoreRepost(event *nostr.Event) error {
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		// create user & post
+		if err := s.saveUserAndPost(ctx, tx, event); err != nil {
+			return nil, err
+		}
+
+		// create repost relation
+		refs := event.Tags.GetAll([]string{"e"})
+		if len(refs) > 0 {
+			ref := refs[0]
+			if _, err := tx.Run(ctx, "match (p:Post), (r:Post) where p.id = $Id and r.id = $RefId merge (p)-[:REPOST]->(r);",
 				map[string]any{
 					"Id":    event.ID,
 					"RefId": ref.Value(),
@@ -256,19 +261,18 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 		return err
 	}
 
-	raw, err := json.Marshal(event)
+	err := s.writeObject(event)
 	if err != nil {
-		logger.Warn("failed to marshal event", "event", event, "err", err)
+		log.Error("Failed to write object", "id", event.ID, "err", err)
 		return err
 	}
 
-	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, raw: $Raw, created_at: $CreatedAt});",
+	if _, err := tx.Run(ctx, "merge (p:Post {id: $Id, kind: $Kind, author: $Author, created_at: $CreatedAt});",
 		map[string]any{
 			"Id":        event.ID,
 			"Kind":      event.Kind,
 			"Author":    event.PubKey,
 			"CreatedAt": event.CreatedAt.Unix(),
-			"Raw":       string(raw),
 		}); err != nil {
 		return err
 	}
@@ -282,6 +286,34 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 	}
 
 	return nil
+}
+
+func (s *Service) writeObject(event *nostr.Event) error {
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	path, dir := s.objPath(event.ID)
+	os.MkdirAll(dir, 0755)
+	return os.WriteFile(path, raw, 0644)
+}
+
+func (s *Service) readObject(id string) (string, error) {
+	file, _ := s.objPath(id)
+	bytes, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+func (s *Service) objPath(id string) (file string, dir string) {
+	prefix := id[:3]
+	name := id[3:]
+	file = path.Join(s.config.Objects.Root, "objects", prefix, name)
+	dir = path.Join(s.config.Objects.Root, "objects", prefix)
+	return
 }
 
 func (s *Service) CreateSubscriber(pubkey, channelSK string, subscribedAt time.Time) error {

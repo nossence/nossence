@@ -25,6 +25,7 @@ type Application struct {
 	service *service.Service
 	crawler *nostr.Crawler
 	bot     *bot.BotApplication
+	nserver *nostr.NameServer
 }
 
 type response struct {
@@ -41,14 +42,16 @@ func NewApplication() *Application {
 	// inject dependencies
 	neo4j := database.NewNeo4jDb(config)
 	service := service.NewService(config, neo4j)
-	crawler := nostr.NewCrawler(service)
+	crawler := nostr.NewCrawler(config, service)
 	bot := bot.NewBotApplication(config, service)
+	nserver := nostr.NewNameServer(config, neo4j)
 	return &Application{
 		config:  config,
 		neo4j:   neo4j,
 		service: service,
 		crawler: crawler,
 		bot:     bot,
+		nserver: nserver,
 	}
 }
 
@@ -61,10 +64,8 @@ func (app *Application) Run() {
 	app.service.InitDatabase()
 	defer app.neo4j.Close()
 
-	// add relays
-	for _, v := range app.config.Crawler.Relays {
-		app.crawler.AddRelay(v)
-	}
+	// start crawler
+	app.crawler.Run()
 
 	// start bot app
 	go func() {
@@ -81,6 +82,7 @@ func (app *Application) listenAndServe() {
 	mux.HandleFunc("/push", app.handlePush)
 	mux.HandleFunc("/batch", app.handleBatch)
 	mux.HandleFunc("/run", app.handleRun)
+	mux.HandleFunc("/.well-known/nostr.json", app.nserver.Serve)
 
 	log.Info("Server started")
 	err := http.ListenAndServe(":8080", mux)
@@ -92,7 +94,10 @@ func (app *Application) listenAndServe() {
 }
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
-	doResponse(w, false, "Not implemented")
+	userPub := r.URL.Query().Get("pubkey")
+
+	feed := app.service.GetFeed(userPub, time.Now().Add(-1*time.Hour), time.Now(), 10)
+	doResponse(w, true, feed)
 }
 
 func (app *Application) handleRun(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +146,19 @@ func loadConfig() *types.Config {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	setDefaultValue(config)
 	return config
+}
+
+// set some default values that cannot be parsed by struct tags
+func setDefaultValue(config *types.Config) {
+	if config.Bot.Metadata.About == "" {
+		config.Bot.Metadata.About = "A recommender engine for nostr. Follow this account and post '@nossence #subscribe' to get your own feed!"
+	}
+
+	if config.Bot.Metadata.ChannelAbout == "" {
+		config.Bot.Metadata.ChannelAbout = "nossence curated content for %s powered by %s"
+	}
 }
 
 func initLogger(config *types.Config) {
