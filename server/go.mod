@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/dyng/nossence-algo v0.0.0-20230322074302-fb02dd7e9430
 	github.com/ethereum/go-ethereum v1.11.5
-	github.com/nbd-wtf/go-nostr v0.13.2
+	github.com/nbd-wtf/go-nostr v0.15.1
 	github.com/nbd-wtf/ln-decodepay v1.11.1
 	github.com/neo4j/neo4j-go-driver/v5 v5.6.0
 	github.com/omeid/uconfig v1.2.0
@@ -52,7 +52,7 @@ require (
 	github.com/stretchr/objx v0.5.0 // indirect
 	github.com/valyala/fastjson v1.6.4 // indirect
 	golang.org/x/crypto v0.7.0 // indirect
-	golang.org/x/exp v0.0.0-20230310171629-522b1b587ee0 // indirect
+	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
 	golang.org/x/mod v0.9.0 // indirect
 	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect

@@ -89,32 +89,19 @@ func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan n
 					ch <- *ev
 				case notice := <-relay.Notices:
 					logger.Warn("relay notice", "uri", uri, "notice", notice)
-				case err := <-relay.ConnectionError:
+				case <-relay.ConnectionContext.Done():
+					err := relay.ConnectionError
 					logger.Error("relay connection error, try to reconnect", "uri", uri, "err", err)
 
 					// try to reconnect for at most 5 times
-					reconnected := false
-					for i := 0; i < 5; i++ {
-						relay, err = nostr.RelayConnect(ctx, uri)
-						if err != nil {
-							time.Sleep(30 * time.Second)
-							continue
-						}
-
-						// if reconnected, close the old subscription and create a new one
-						c.Relays[uri] = relay
-						subscription = relay.Subscribe(ctx, filters)
-						reconnected = true
-						break
-					}
-
+					reconnected := c.reconnect(relay, 5)
 					if !reconnected {
-						// if still failed, close the channel
 						logger.Error("failed to reconnect to relay, closing channel", "uri", uri)
 						return
-					} else {
-						logger.Info("reconnected to relay", "uri", uri)
 					}
+
+					subscription = relay.Subscribe(ctx, filters)
+					logger.Info("reconnected to relay", "uri", uri)
 				}
 			}
 		}(uri, r, sub)
@@ -126,17 +113,35 @@ func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan n
 // Publish a signed event to all relays
 func (c *Client) Publish(ctx context.Context, ev nostr.Event) error {
 	for uri, r := range c.Relays {
-		status := r.Publish(ctx, ev)
+		status, err := r.Publish(ctx, ev)
+		if err != nil {
+			logger.Debug("failed to publish event to relay, try to reconnect and resend", "uri", uri, "id", ev.ID, "err", err)
+			c.reconnect(r, 1)
+			status, err = r.Publish(ctx, ev)
+		}
 		switch status {
 		case nostr.PublishStatusSucceeded:
 			logger.Debug("published event to relay", "uri", uri, "id", ev.ID)
 		case nostr.PublishStatusFailed:
-			logger.Error("failed to publish event to relay, skipping...", "uri", uri, "id", ev.ID)
+			logger.Error("failed to publish event to relay, skip", "uri", uri, "id", ev.ID, "err", err)
 		case nostr.PublishStatusSent:
-			logger.Warn("sent event to relay", "uri", uri, "id", ev.ID)
+			logger.Warn("event may or may not published to relay", "uri", uri, "id", ev.ID, "err", err)
 		}
 	}
 	return nil
+}
+
+func (c *Client) reconnect(relay *nostr.Relay, retries int) bool {
+	for i := 0; i < retries; i++ {
+		err := relay.Connect(context.Background())
+		if err != nil {
+			logger.Debug("failed to reconnect to relay, retrying...", "uri", relay.URL, "err", err)
+			time.Sleep(30 * time.Second)
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // Repost an event

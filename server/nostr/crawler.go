@@ -112,7 +112,8 @@ func (c *Crawler) subscribe(url string, since time.Time, limit int) (*relayConne
 				}
 			case notice := <-relay.Notices:
 				log.Warn("Received relay notice", "notice", notice)
-			case err := <-relay.ConnectionError:
+			case <-relay.ConnectionContext.Done():
+				err := relay.ConnectionError
 				log.Error("Connection error", "url", url, "err", err)
 				conn.error <- err
 			case <-ctx.Done():
