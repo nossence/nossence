@@ -105,6 +105,10 @@ func (c *Crawler) subscribe(url string, since time.Time, limit int) (*relayConne
 		for {
 			select {
 			case ev := <-sub.Events:
+				if ev == nil {
+					log.Debug("Channel is closed", "url", url)
+					return
+				}
 				log.Debug("Received event", "id", ev.ID, "kind", ev.Kind, "author", ev.PubKey, "created_at", ev.CreatedAt)
 				err := c.service.StoreEvent(ev)
 				if err != nil {

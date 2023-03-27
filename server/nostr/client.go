@@ -86,7 +86,11 @@ func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan n
 			for {
 				select {
 				case ev := <-subscription.Events:
-					ch <- *ev
+					if ev == nil {
+						logger.Debug("received nil event, channel may closed", "uri", uri)
+					} else {
+						ch <- *ev
+					}
 				case notice := <-relay.Notices:
 					logger.Warn("relay notice", "uri", uri, "notice", notice)
 				case <-relay.ConnectionContext.Done():
