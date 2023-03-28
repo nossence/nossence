@@ -169,7 +169,6 @@ func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub, raw string)
 		Kind:   6,
 		Tags: nostr.Tags{
 			nostr.Tag{"e", eventID, "", "mention"},
-			nostr.Tag{"p", authorPub},
 		},
 		// To align with repost requirement on Damus, there's needs
 		// to set the raw origin event in content field
