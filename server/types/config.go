@@ -29,8 +29,10 @@ type Neo4jConfig struct {
 }
 
 type LogConfig struct {
-	Level string `default:"info"`
-	Path  string `default:"console"`
+	Level   string `default:"info"`
+	Path    string `default:"console"`
+	MaxSize int    `default:"100"`
+	MaxAge  int    `default:"30"`
 }
 
 type ObjectsConfig struct {
