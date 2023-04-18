@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	"github.com/dyng/nosdaily/service"
 	"github.com/dyng/nosdaily/types"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/natefinch/lumberjack"
 	"github.com/omeid/uconfig"
 )
 
@@ -163,19 +165,21 @@ func setDefaultValue(config *types.Config) {
 
 func initLogger(config *types.Config) {
 	// log to console by default
-	file := os.Stdout
+	var wr io.Writer
 
 	path := config.Log.Path
-	if path != "console" {
-		var err error
-		file, err = os.OpenFile(path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
-		if err != nil {
-			fmt.Printf("Cannot create log file at path %s: %v\n", path, err)
-			os.Exit(1)
+	if path == "console" {
+		wr = os.Stdout
+	} else {
+		wr = &lumberjack.Logger{
+			Filename:   path,
+			MaxSize:    config.Log.MaxSize, // megabytes
+			MaxAge:     config.Log.MaxAge,  // days
+			Compress:   true,
 		}
 	}
 
-	handler := log.StreamHandler(file, log.TerminalFormat(false))
+	handler := log.StreamHandler(wr, log.TerminalFormat(false))
 	level, _ := log.LvlFromString(config.Log.Level)
 	handler = log.LvlFilterHandler(level, handler)
 	log.Root().SetHandler(handler)

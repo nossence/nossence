@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/dyng/nossence-algo v0.0.0-20230322074302-fb02dd7e9430
 	github.com/ethereum/go-ethereum v1.11.5
+	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/nbd-wtf/go-nostr v0.15.1
 	github.com/nbd-wtf/ln-decodepay v1.11.1
 	github.com/neo4j/neo4j-go-driver/v5 v5.6.0
@@ -14,6 +15,7 @@ require (
 )
 
 require (
+	github.com/BurntSushi/toml v1.2.1 // indirect
 	github.com/SaveTheRbtz/generic-sync-map-go v0.0.0-20230201052002-6c5833b989be // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.23.5-0.20230125025938-be056b0a0b2f // indirect

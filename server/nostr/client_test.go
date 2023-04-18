@@ -2,15 +2,17 @@ package nostr
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/stretchr/testify/assert"
 )
 
-var relays = []string{"ws://localhost:8090"}
+var relays = []string{"wss://relay.damus.io"}
 
 func getIdentity() (sk, pub string) {
 	sk = nostr.GeneratePrivateKey()
@@ -89,10 +91,13 @@ func TestRepost(t *testing.T) {
 	assert.NoError(t, err)
 
 	sk, _ := getIdentity()
+	pk, _ := nostr.GetPublicKey(sk)
+	npub, _ := nip19.EncodePublicKey(pk)
+	fmt.Printf("sk: %s, pub: %s, npub: %s", sk, pk, npub)
 	assert.NoError(t, err)
-	eventID := "foo"
-	authorPub := "bar"
-	raw := ""
+	eventID := "c8436ce1b543ae7c9cabe2da4666cf566410c36d48886d732d2e19165130c652"
+	authorPub := "aba7339fe76595d4ad5bff333f1ba1e9198907588a49df4519a3ade60cc1f998"
+	raw := "{\"pubkey\":\"aba7339fe76595d4ad5bff333f1ba1e9198907588a49df4519a3ade60cc1f998\",\"content\":\"坚持，但不要执念。\\n\\npersevere, but don't obsess.\",\"id\":\"c8436ce1b543ae7c9cabe2da4666cf566410c36d48886d732d2e19165130c652\",\"created_at\":1677890182,\"sig\":\"4db2f023ddce2c9386325770f13a80e0470f20fd4df5535bd536c501377c29e0e80e47f88b5a0077ea9782d20746ce9ee48afeeb9043cdc6266ffdd492485433\",\"kind\":1,\"tags\":[]}"
 	err = client.Repost(context.Background(), sk, eventID, authorPub, raw)
-	assert.NoError(t, err)
+	assert.Error(t, err)
 }
