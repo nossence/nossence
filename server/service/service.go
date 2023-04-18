@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/dyng/nosdaily/database"
 	"github.com/dyng/nosdaily/types"
 	algo "github.com/dyng/nossence-algo"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/go-co-op/gocron"
 	"github.com/nbd-wtf/go-nostr"
 	decodepay "github.com/nbd-wtf/ln-decodepay"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -20,9 +22,10 @@ import (
 var logger = log.New("module", "service")
 
 type Service struct {
-	config *types.Config
-	neo4j  *database.Neo4jDb
-	engine *algo.Engine
+	config    *types.Config
+	neo4j     *database.Neo4jDb
+	engine    *algo.Engine
+	scheduler *gocron.Scheduler
 }
 
 type IService interface {
@@ -36,12 +39,13 @@ type IService interface {
 
 func NewService(config *types.Config, neo4j *database.Neo4jDb) *Service {
 	return &Service{
-		config: config,
-		neo4j:  neo4j,
+		config:    config,
+		neo4j:     neo4j,
+		scheduler: gocron.NewScheduler(time.UTC),
 	}
 }
 
-func (s *Service) InitDatabase() error {
+func (s *Service) Init() error {
 	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
 		ctx := context.Background()
 		if _, err := tx.Run(ctx, "CREATE CONSTRAINT post_id_uniq IF NOT EXISTS FOR (p:Post) REQUIRE p.id IS UNIQUE;", nil); err != nil {
@@ -55,6 +59,9 @@ func (s *Service) InitDatabase() error {
 
 	// init algo engine
 	s.engine = algo.NewEngine(s.neo4j.GetDriver())
+
+	// init cleanup task
+	s.scheduler.Every(1).Day().At("00:00").Do(s.CleanObjects)
 
 	return err
 }
@@ -70,12 +77,12 @@ func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, 
 		}
 
 		feed = append(feed, types.FeedEntry{
-			Id: post.Id,
-			Kind: post.Kind,
-			Pubkey: post.Pubkey,
+			Id:        post.Id,
+			Kind:      post.Kind,
+			Pubkey:    post.Pubkey,
 			CreatedAt: post.CreatedAt,
-			Score: post.Score,
-			Raw: raw,
+			Score:     post.Score,
+			Raw:       raw,
 		})
 	}
 	return feed
@@ -286,6 +293,21 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 	}
 
 	return nil
+}
+
+func (s *Service) CleanObjects() {
+	// delete files older than 7 days
+	filepath.Walk(s.config.Objects.Root, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+
+		if time.Since(info.ModTime()) > 7*24*time.Hour {
+			_ = os.Remove(path)
+		}
+
+		return nil
+	})
 }
 
 func (s *Service) writeObject(event *nostr.Event) error {

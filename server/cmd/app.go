@@ -63,7 +63,7 @@ func (app *Application) Run() {
 	if err != nil {
 		log.Crit("Failed to connect to neo4j", "err", err)
 	}
-	app.service.InitDatabase()
+	app.service.Init()
 	defer app.neo4j.Close()
 
 	// start crawler
