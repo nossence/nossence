@@ -17,3 +17,8 @@ type FeedEntry struct {
 	Score     float64   `json:"score"`
 	Raw       string    `json:"raw"`
 }
+
+type RelayInfo struct {
+	URL     string `json:"url"`
+	Purpose string `json:"purpose"`
+}

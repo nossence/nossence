@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dyng/nosdaily/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
@@ -22,7 +23,7 @@ type IClient interface {
 	Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event
 	Repost(ctx context.Context, sk, id, author, raw string) error
 	Mention(ctx context.Context, sk, msg string, mentions []string) error
-	Metadata(ctx context.Context, sk, name, about, picture, nip05 string) error
+	Metadata(ctx context.Context, sk, name, about, picture, nip05 string, relays []types.RelayInfo) error
 }
 
 func DecodeNsec(nsec string) (string, error) {
@@ -217,12 +218,13 @@ func (c *Client) Mention(ctx context.Context, sk, msg string, mentions []string)
 	return c.Publish(ctx, ev)
 }
 
-func (c *Client) Metadata(ctx context.Context, sk, name, about, picture, nip05 string) error {
+func (c *Client) Metadata(ctx context.Context, sk, name, about, picture, nip05 string, relays []types.RelayInfo) error {
 	senderPub, err := nostr.GetPublicKey(sk)
 	if err != nil {
 		return err
 	}
 
+	// send NIP-01 Metadata Event
 	content := map[string]string{
 		"name":         name,
 		"username":     name,
@@ -243,6 +245,36 @@ func (c *Client) Metadata(ctx context.Context, sk, name, about, picture, nip05 s
 		CreatedAt: time.Now(),
 		Kind:      0,
 		Content:   string(contentJson),
+	}
+
+	err = ev.Sign(sk)
+	if err != nil {
+		return err
+	}
+
+	err = c.Publish(ctx, ev)
+	if err != nil {
+		return err
+	}
+
+	// send NIP-65 Relay List Event
+	tags := nostr.Tags{}
+	for _, r := range relays {
+		if r.Purpose != "" {
+			tags = append(tags, nostr.Tag{
+				"r", r.URL, r.Purpose,
+			})
+		} else {
+			tags = append(tags, nostr.Tag{
+				"r", r.URL,
+			})
+		}
+	}
+	ev = nostr.Event{
+		PubKey:    senderPub,
+		CreatedAt: time.Now(),
+		Kind:      10002,
+		Tags:      tags,
 	}
 
 	err = ev.Sign(sk)

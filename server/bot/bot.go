@@ -13,6 +13,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"github.com/robfig/cron/v3"
+	"golang.org/x/exp/slices"
 )
 
 var logger = log.New("module", "bot")
@@ -158,7 +159,8 @@ func (b *Bot) Listen(ctx context.Context) (<-chan nostr.Event, error) {
 	// set user metadata
 	logger.Info("Create account metadata", "pubkey", b.pub)
 	metadata := b.config.Bot.Metadata
-	err := b.client.Metadata(ctx, b.SK, metadata.Name, metadata.About, metadata.Picture, metadata.Nip05)
+	relays := b.recommendedRelayList(*b.config)
+	err := b.client.Metadata(ctx, b.SK, metadata.Name, metadata.About, metadata.Picture, metadata.Nip05, relays)
 	if err != nil {
 		logger.Error("failed to set account metadata", "err", err)
 	}
@@ -207,10 +209,11 @@ func (b *Bot) createSubscription(ctx context.Context, subscriberPub string) (str
 	// send set_metadata event
 	npub, _ := nip19.EncodePublicKey(subscriberPub)
 	mainNpub, _ := nip19.EncodePublicKey(b.pub)
+	relays := b.recommendedRelayList(*b.config)
 	err = b.client.Metadata(ctx, channelSK,
 		metadata.ChannelName,
 		fmt.Sprintf(metadata.ChannelAbout, npub, mainNpub),
-		metadata.ChannelPicture, "")
+		metadata.ChannelPicture, "", relays)
 	if err != nil {
 		return "", err
 	}
@@ -237,4 +240,33 @@ func (b *Bot) SendWelcomeMessage(ctx context.Context, channelSK, receiverPub str
 		receiverPub,
 		channelPub,
 	})
+}
+
+func (b *Bot) recommendedRelayList(config types.Config) []types.RelayInfo {
+	relays := []types.RelayInfo{}
+
+	for _, r := range config.Bot.Relays {
+		if slices.Contains(config.Crawler.Relays, r) {
+			relays = append(relays, types.RelayInfo{
+				URL:     r,
+				Purpose: "",
+			})
+		} else {
+			relays = append(relays, types.RelayInfo{
+				URL:     r,
+				Purpose: "write",
+			})
+		}
+	}
+
+	for _, r := range config.Crawler.Relays {
+		if !slices.Contains(config.Bot.Relays, r) {
+			relays = append(relays, types.RelayInfo{
+				URL:     r,
+				Purpose: "read",
+			})
+		}
+	}
+
+	return relays
 }
