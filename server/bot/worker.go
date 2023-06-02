@@ -87,7 +87,8 @@ func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, time
 	var eventIds []string
 	channelPub, _ := nostr.GetPublicKey(channelSK)
 	for _, post := range feed {
-		err := w.client.Repost(ctx, channelSK, post.Id, post.Pubkey, post.Raw)
+		// err := w.client.Repost(ctx, channelSK, post.Id, post.Pubkey, post.Raw)
+		err := w.client.Quote(ctx, channelSK, post.Id, post.Pubkey, post.Raw)
 		if err != nil {
 			logger.Warn("failed to repost event", "channelPub", channelPub, "id", post.Id, "err", err)
 		}
