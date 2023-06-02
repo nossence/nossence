@@ -22,6 +22,7 @@ type Client struct {
 type IClient interface {
 	Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event
 	Repost(ctx context.Context, sk, id, author, raw string) error
+	Quote(ctx context.Context, sk, id, author string) error
 	Mention(ctx context.Context, sk, msg string, mentions []string) error
 	Metadata(ctx context.Context, sk, name, about, picture, nip05 string, relays []types.RelayInfo) error
 }
@@ -147,6 +148,35 @@ func (c *Client) reconnect(relay *nostr.Relay, retries int) bool {
 		return true
 	}
 	return false
+}
+func (c *Client) Quote(ctx context.Context, sk, eventID, authorPub, raw string) error {
+	note, _ := nip19.EncodeNote(eventID)
+	logger.Debug("quoting event", "event_id", eventID, "note", note, "author_pub", authorPub, "raw", raw)
+	pub, err := nostr.GetPublicKey(sk)
+	prefix := "nostr:"
+	raw = fmt.Sprintf("%s%s", prefix, note)
+
+	if err != nil {
+		return err
+	}
+	ev := nostr.Event{
+		PubKey: pub,
+		Kind:   1,
+		Tags: nostr.Tags{
+			nostr.Tag{"q", eventID},
+		},
+		Content:   raw,
+		CreatedAt: time.Now(),
+	}
+
+	err = ev.Sign(sk)
+	if err != nil {
+		return err
+	}
+
+	return c.Publish(ctx, ev)
+	// There's ongoing disucssion about how to create a quote event:
+	//
 }
 
 // Repost an event
