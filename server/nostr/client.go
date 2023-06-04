@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dyng/nosdaily/types"
@@ -22,6 +23,7 @@ type Client struct {
 type IClient interface {
 	Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event
 	Repost(ctx context.Context, sk, id, author, raw string) error
+	Quote(ctx context.Context, sk string, comment string, id []string) error
 	Mention(ctx context.Context, sk, msg string, mentions []string) error
 	Metadata(ctx context.Context, sk, name, about, picture, nip05 string, relays []types.RelayInfo) error
 }
@@ -174,6 +176,45 @@ func (c *Client) Repost(ctx context.Context, sk, eventID, authorPub, raw string)
 		// To align with repost requirement on Damus, there's needs
 		// to set the raw origin event in content field
 		Content:   raw,
+		CreatedAt: time.Now(),
+	}
+
+	err = ev.Sign(sk)
+	if err != nil {
+		return err
+	}
+
+	return c.Publish(ctx, ev)
+}
+
+func (c *Client) Quote(ctx context.Context, sk string, comment string, eventIDs []string) error {
+	var sb strings.Builder
+	var tags nostr.Tags
+
+	// write comment
+	sb.WriteString(comment)
+
+	// write events
+	for _, eventID := range eventIDs {
+		note, err := nip19.EncodeNote(eventID)
+		logger.Debug("quoting event", "event_id", eventID, "note", note)
+		if err != nil {
+			return err
+		}
+		sb.WriteString("\n" + "nostr:" + note)
+		tags = append(tags, nostr.Tag{"q", eventID})
+	}
+
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
+	ev := nostr.Event{
+		PubKey:    pub,
+		Kind:      1,
+		Tags:      tags,
+		Content:   sb.String(),
 		CreatedAt: time.Now(),
 	}
 

@@ -116,13 +116,19 @@ func (app *Application) handleBatch(w http.ResponseWriter, r *http.Request) {
 
 func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
 	subscriberPub := r.URL.Query().Get("pubkey")
+	useRepostParam := r.URL.Query().Get("useRepost")
+
+	useRepost := true
+	if useRepostParam != "" {
+		useRepost, _ = strconv.ParseBool(useRepostParam)
+	}
 
 	subscriber := app.service.GetSubscriber(subscriberPub)
 	if subscriber == nil {
 		doResponse(w, false, "subscriber not found")
 	}
 
-	app.bot.Worker.Push(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10)
+	app.bot.Worker.Push(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10, useRepost)
 	doResponse(w, true, "pushed")
 }
 

@@ -120,7 +120,7 @@ func (ba *BotApplication) Run(ctx context.Context) error {
 				}
 
 				// prepare initial content for first subscription
-				err = ba.Worker.Push(ctx, ev.PubKey, channelSK, PushInterval, PushSize)
+				err = ba.Worker.Push(ctx, ev.PubKey, channelSK, PushInterval, PushSize, false)
 				if err != nil {
 					logger.Error("failed to prepare initial content", "pubkey", ev.PubKey, "err", err)
 				}
