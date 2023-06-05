@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	n "github.com/dyng/nosdaily/nostr"
@@ -103,10 +102,11 @@ func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, time
 			}
 		}
 	} else {
-		comment := fmt.Sprintf(QuoteComment, len(feed))
-		err := w.client.Quote(ctx, channelSK, comment, eventIds)
-		if err != nil {
-			logger.Warn("failed to quote event", "channelPub", channelPub, "eventIds", eventIds, "err", err)
+		for _, post := range feed {
+			err := w.client.Quote(ctx, channelSK, "", []string{post.Id})
+			if err != nil {
+				logger.Warn("failed to quote event", "channelPub", channelPub, "eventIds", eventIds, "err", err)
+			}
 		}
 	}
 
