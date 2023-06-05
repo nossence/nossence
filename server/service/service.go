@@ -61,7 +61,7 @@ func (s *Service) Init() error {
 	s.engine = algo.NewEngine(s.neo4j.GetDriver())
 
 	// init cleanup task
-	s.scheduler.Every(1).Day().At("00:00").Do(s.CleanObjects)
+	s.scheduler.Every(1).Day().At("00:00").Do(s.DailyJob)
 
 	return err
 }
@@ -295,7 +295,77 @@ func (s *Service) saveUserAndPost(ctx context.Context, tx neo4j.ManagedTransacti
 	return nil
 }
 
-func (s *Service) CleanObjects() {
+func (s *Service) DailyJob() {
+	// clean old posts
+	s.cleanPosts()
+
+	// clean objects
+	s.cleanObjs()
+
+	// update user favorites
+	s.updateFavorites()
+}
+
+func (s *Service) updateFavorites() {
+	// timestamp of 2 days ago
+	timestamp := time.Now().AddDate(0, 0, -2).Unix()
+
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		if _, err := tx.Run(ctx, "match (r:Post) where r.created_at > $Timestamp match (a:User)-[:CREATE]->(r:Post)-[:ZAP|REPLY|LIKE|REPOST]->(p:Post) merge (a)-[:LIKES]->(p)",
+			map[string]any{
+				"Timestamp": timestamp,
+			}); err != nil {
+			return nil, err
+		}
+
+		if _, err := tx.Run(ctx, "match (:User)-[s:SIMILAR]->(:User) delete s",
+			map[string]any{}); err != nil {
+			return nil, err
+		}
+
+		if _, err := tx.Run(ctx, "CALL gds.nodeSimilarity.write('myGraph', { similarityCutoff: 0.01, degreeCutoff: 3, writeRelationshipType: 'SIMILAR', writeProperty: 'score' })",
+			map[string]any{}); err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	})
+
+	if err != nil {
+		log.Error("Failed to update user favorites", "err", err)
+	}
+}
+
+func (s *Service) cleanPosts() {
+	// timestamp of 30 days ago
+	timestamp := time.Now().AddDate(0, 0, -30).Unix()
+
+	_, err := s.neo4j.ExecuteWrite(func(tx neo4j.ManagedTransaction) (any, error) {
+		ctx := context.Background()
+
+		if _, err := tx.Run(ctx, "call apoc.periodic.iterate('match (r:Post) where r.created_at < $Timestamp return r', 'detach delete r', {batchSize:10000, iterateList:true, parallel:false})",
+			map[string]any{
+				"Timestamp": timestamp,
+			}); err != nil {
+			return nil, err
+		}
+
+		if _, err := tx.Run(ctx, "call apoc.periodic.iterate('match (u:User) where not (u)--() return u', 'detach delete u', {batchSize:10000, iterateList:true, parallel:false})",
+			map[string]any{}); err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	})
+
+	if err != nil {
+		log.Error("Failed to batch delete old posts and inactive users", "err", err)
+	}
+}
+
+func (s *Service) cleanObjs() {
 	// delete files older than 7 days
 	filepath.Walk(s.config.Objects.Root, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {

@@ -16,6 +16,10 @@ type Worker struct {
 	service service.IService
 }
 
+var (
+	QuoteComment = "Here are the Top %d events curated for You"
+)
+
 func NewWorker(ctx context.Context, client n.IClient, service service.IService, config *types.Config) (*Worker, error) {
 	return &Worker{
 		config:  config,
@@ -50,7 +54,7 @@ func (w *Worker) Run(ctx context.Context) error {
 func (w *Worker) UpdateMain(ctx context.Context) error {
 	logger.Info("updating main channel")
 	mainSK := w.config.Bot.SK
-	return w.Push(ctx, "", mainSK, PushInterval, PushSize)
+	return w.Push(ctx, "", mainSK, PushInterval, PushSize, true)
 }
 
 func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err error) {
@@ -65,7 +69,7 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err 
 			logger.Info("skipping non subscriber", "pubkey", subscriber.Pubkey)
 			continue
 		}
-		err = w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, PushInterval, PushSize)
+		err = w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, PushInterval, PushSize, false)
 		if err != nil {
 			logger.Warn("failed to run worker for subscriber", "pubkey", subscriber.Pubkey, "err", err)
 		}
@@ -74,7 +78,7 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err 
 	return len(subscribers) >= limit, nil
 }
 
-func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, timeRange time.Duration, limit int) error {
+func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, timeRange time.Duration, limit int, useRepost bool) error {
 	start := time.Now().Add(-1 * timeRange)
 	end := time.Now()
 	logger.Debug("start to repost feed", "userPub", subscriberPub, "start", start, "end", end, "limit", limit)
@@ -84,16 +88,28 @@ func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, time
 		return nil
 	}
 
-	var eventIds []string
 	channelPub, _ := nostr.GetPublicKey(channelSK)
+	var eventIds []string
 	for _, post := range feed {
-		err := w.client.Repost(ctx, channelSK, post.Id, post.Pubkey, post.Raw)
-		if err != nil {
-			logger.Warn("failed to repost event", "channelPub", channelPub, "id", post.Id, "err", err)
-		}
 		eventIds = append(eventIds, post.Id)
 	}
 
-	logger.Info("reposted feed", "subscriberPub", subscriberPub, "channelPub", channelPub, "eventIds", eventIds)
+	if useRepost {
+		for _, post := range feed {
+			err := w.client.Repost(ctx, channelSK, post.Id, post.Pubkey, post.Raw)
+			if err != nil {
+				logger.Warn("failed to repost event", "channelPub", channelPub, "id", post.Id, "err", err)
+			}
+		}
+	} else {
+		for _, post := range feed {
+			err := w.client.Quote(ctx, channelSK, "", []string{post.Id})
+			if err != nil {
+				logger.Warn("failed to quote event", "channelPub", channelPub, "eventIds", eventIds, "err", err)
+			}
+		}
+	}
+
+	logger.Info("reposted feed", "subscriberPub", subscriberPub, "channelPub", channelPub, "eventIds", eventIds, "useRepost", useRepost)
 	return nil
 }
