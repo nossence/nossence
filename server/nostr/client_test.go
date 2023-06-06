@@ -31,12 +31,12 @@ func getReceiverPub() string {
 }
 
 func TestNewClient(t *testing.T) {
-	_, err := NewClient(context.Background(), relays)
+	_, err := NewClient(context.Background(), relays, nil)
 	assert.NoError(t, err)
 }
 
 func TestSubscribe(t *testing.T) {
-	client, err := NewClient(context.Background(), relays)
+	client, err := NewClient(context.Background(), relays, nil)
 	assert.NoError(t, err)
 
 	until := time.Now()
@@ -57,7 +57,7 @@ func TestSubscribe(t *testing.T) {
 }
 
 func TestPublish(t *testing.T) {
-	client, err := NewClient(context.Background(), relays)
+	client, err := NewClient(context.Background(), relays, nil)
 	assert.NoError(t, err)
 
 	sk, pub := getIdentity()
@@ -76,7 +76,7 @@ func TestPublish(t *testing.T) {
 }
 
 func TestSendMessage(t *testing.T) {
-	client, err := NewClient(context.Background(), relays)
+	client, err := NewClient(context.Background(), relays, nil)
 	assert.NoError(t, err)
 
 	sk, _ := getIdentity()
@@ -87,7 +87,7 @@ func TestSendMessage(t *testing.T) {
 }
 
 func TestRepost(t *testing.T) {
-	client, err := NewClient(context.Background(), relays)
+	client, err := NewClient(context.Background(), relays, nil)
 	assert.NoError(t, err)
 
 	sk, _ := getIdentity()

@@ -17,7 +17,8 @@ import (
 var logger = log.New("module", "nostr")
 
 type Client struct {
-	Relays map[string]*nostr.Relay
+	Relays   map[string]*nostr.Relay
+	ListenTo map[string]*nostr.Relay
 }
 
 type IClient interface {
@@ -62,7 +63,12 @@ func DecodeNpub(npub string) (string, error) {
 	return "", fmt.Errorf("invalid npub value: %v", val)
 }
 
-func NewClient(ctx context.Context, uris []string) (*Client, error) {
+func NewClient(ctx context.Context, uris []string, listenTo []string) (*Client, error) {
+	if len(listenTo) == 0 {
+		listenTo = uris
+	}
+
+	logger.Info("using relays", "uris", strings.Join(uris, ","))
 	rs := map[string]*nostr.Relay{}
 	for _, uri := range uris {
 		r, err := nostr.RelayConnect(ctx, uri)
@@ -73,14 +79,26 @@ func NewClient(ctx context.Context, uris []string) (*Client, error) {
 		rs[uri] = r
 	}
 
+	logger.Info("listening to relays", "uris", strings.Join(listenTo, ","))
+	listenRs := map[string]*nostr.Relay{}
+	for _, uri := range listenTo {
+		r, err := nostr.RelayConnect(ctx, uri)
+		if err != nil {
+			logger.Warn("failed to connect to relay, skipping...", "uri", uri, "err", err)
+			continue
+		}
+		listenRs[uri] = r
+	}
+
 	return &Client{
-		Relays: rs,
+		Relays:   rs,
+		ListenTo: listenRs,
 	}, nil
 }
 
 func (c *Client) Subscribe(ctx context.Context, filters []nostr.Filter) <-chan nostr.Event {
 	ch := make(chan nostr.Event)
-	for uri, r := range c.Relays {
+	for uri, r := range c.ListenTo {
 		logger.Info("subscribing to relay", "uri", uri)
 		sub := r.Subscribe(ctx, filters)
 

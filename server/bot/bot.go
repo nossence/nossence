@@ -40,7 +40,7 @@ type Bot struct {
 func NewBotApplication(config *types.Config, service *service.Service) *BotApplication {
 	ctx := context.Background()
 
-	client, err := n.NewClient(ctx, config.Bot.Relays)
+	client, err := n.NewClient(ctx, config.Bot.Relays, config.Bot.ListenTo)
 	if err != nil {
 		panic(err)
 	}

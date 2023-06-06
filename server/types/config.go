@@ -3,6 +3,7 @@ package types
 type BotConfig struct {
 	SK       string
 	Relays   []string
+	ListenTo []string
 	Metadata MetadataConfig
 }
 
