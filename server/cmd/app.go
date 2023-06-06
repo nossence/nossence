@@ -84,6 +84,7 @@ func (app *Application) listenAndServe() {
 	mux.HandleFunc("/push", app.handlePush)
 	mux.HandleFunc("/batch", app.handleBatch)
 	mux.HandleFunc("/run", app.handleRun)
+	mux.HandleFunc("/subscribe", app.handleSubscribe)
 	mux.HandleFunc("/.well-known/nostr.json", app.nserver.Serve)
 
 	log.Info("Server started")
@@ -130,6 +131,33 @@ func (app *Application) handlePush(w http.ResponseWriter, r *http.Request) {
 
 	app.bot.Worker.Push(r.Context(), subscriberPub, subscriber.ChannelSecret, time.Hour, 10, useRepost)
 	doResponse(w, true, "pushed")
+}
+
+func (app *Application) handleSubscribe(w http.ResponseWriter, r *http.Request) {
+	subscriberPub := r.URL.Query().Get("pubkey")
+	ctx := context.Background()
+	ba := app.bot
+
+	channelSK, new, err := ba.Bot.GetOrCreateSubscription(ctx, subscriberPub)
+	if err != nil {
+		log.Warn("failed to create channel", "pubkey", subscriberPub, "err", err)
+	}
+
+	if new {
+		err := ba.Bot.SendWelcomeMessage(ctx, channelSK, subscriberPub)
+		if err != nil {
+			log.Error("failed to send welcome message", "pubkey", subscriberPub, "err", err)
+		} else {
+			log.Info("sent welcome message to new subscriber", "pubkey", subscriberPub)
+		}
+	}
+
+	// prepare initial content for first subscription
+	err = ba.Worker.Push(ctx, subscriberPub, channelSK, bot.PushInterval, bot.PushSize, false)
+	if err != nil {
+		log.Error("failed to prepare initial content", "pubkey", subscriberPub, "err", err)
+	}
+	doResponse(w, true, "subscribed as pubkey " + subscriberPub)
 }
 
 func doResponse(w http.ResponseWriter, success bool, body any) {
