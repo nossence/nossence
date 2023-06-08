@@ -20,7 +20,7 @@ var logger = log.New("module", "bot")
 
 const (
 	PushInterval = time.Hour
-	PushSize     = 5
+	PushSize     = 4
 )
 
 type BotApplication struct {
