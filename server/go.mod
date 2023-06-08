@@ -3,7 +3,7 @@ module github.com/dyng/nosdaily
 go 1.18
 
 require (
-	github.com/dyng/nossence-algo v0.0.0-20230322074302-fb02dd7e9430
+	github.com/dyng/nossence-algo v0.0.0-20230608135829-f7cc01a61ab7
 	github.com/ethereum/go-ethereum v1.11.5
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/nbd-wtf/go-nostr v0.15.1
