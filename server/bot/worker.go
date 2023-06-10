@@ -2,6 +2,8 @@ package bot
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"time"
 
 	n "github.com/dyng/nosdaily/nostr"
@@ -64,16 +66,23 @@ func (w *Worker) Batch(ctx context.Context, limit, skip int) (hasNext bool, err 
 		return false, err
 	}
 
-	for _, subscriber := range subscribers {
-		if subscriber.UnsubscribedAt != nil {
-			logger.Info("skipping non subscriber", "pubkey", subscriber.Pubkey)
-			continue
-		}
-		err = w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, PushInterval, PushSize, false)
-		if err != nil {
-			logger.Warn("failed to run worker for subscriber", "pubkey", subscriber.Pubkey, "err", err)
-		}
+	subChan := make(chan *types.Subscriber)
+	var wg sync.WaitGroup
+
+	for i := 1; i <= runtime.NumCPU(); i++ {
+		wg.Add(1)
+		go w.pusher(i, ctx, subChan, &wg)
 	}
+
+	for _, subscriber := range subscribers {
+		sub := subscriber
+		logger.Debug("dispatch subscriber", "pubkey", sub.Pubkey)
+		subChan <- &sub
+	}
+	close(subChan)
+
+	wg.Wait()
+	logger.Info("batch push finished", "limit", limit, "skip", skip)
 
 	return len(subscribers) >= limit, nil
 }
@@ -87,6 +96,7 @@ func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, time
 		logger.Warn("got empty feed", "subscriberPub", subscriberPub)
 		return nil
 	}
+	logger.Debug("got feed", "subscriberPub", subscriberPub, "size", len(feed))
 
 	channelPub, _ := nostr.GetPublicKey(channelSK)
 	var eventIds []string
@@ -112,4 +122,21 @@ func (w *Worker) Push(ctx context.Context, subscriberPub, channelSK string, time
 
 	logger.Info("reposted feed", "subscriberPub", subscriberPub, "channelPub", channelPub, "eventIds", eventIds, "useRepost", useRepost)
 	return nil
+}
+
+func (w *Worker) pusher(id int, ctx context.Context, subscribers <-chan *types.Subscriber, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for subscriber := range subscribers {
+		logger.Debug("push to subscriber", "pubkey", subscriber.Pubkey, "pusher", id)
+		if subscriber.UnsubscribedAt != nil {
+			logger.Info("skipping non subscriber", "pubkey", subscriber.Pubkey)
+			continue
+		}
+		err := w.Push(ctx, subscriber.Pubkey, subscriber.ChannelSecret, PushInterval, PushSize, false)
+		if err != nil {
+			logger.Warn("failed to run worker for subscriber", "pubkey", subscriber.Pubkey, "err", err)
+		} else {
+			logger.Info("worker finished for subscriber", "pubkey", subscriber.Pubkey)
+		}
+	}
 }
