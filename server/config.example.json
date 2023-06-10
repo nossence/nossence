@@ -14,5 +14,8 @@
 	"bot": {
 		"sk": "PUT_YOUR_HEX_SECRET_KEY_HERE",
 		"relays": ["wss://relay.damus.io"]
+	},
+	"objects": {
+		"root": "./data"
 	}
 }
