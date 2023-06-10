@@ -2,6 +2,9 @@
 .env
 config.json
 
+# Artifacts
+data
+
 # Binaries for programs and plugins
 *.exe
 *.exe~

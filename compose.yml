@@ -1,0 +1,19 @@
+services:
+  neo4j:
+    image: neo4j:5.8-community
+    ports:
+      - 7474:7474
+      - 7687:7687
+    volumes:
+      - neo4j-data:/data
+  # nossence:
+  #   build:
+  #     context: ./server
+  #   ports:
+  #     - 8080:8080
+  #   volumes:
+  #     - ./config.json:/app/config.json
+  #     - nossence-data:/var/data/nossence
+volumes:
+  neo4j-data:
+  # nossence-data:
