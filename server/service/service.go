@@ -68,9 +68,8 @@ func (s *Service) Init() error {
 }
 
 func (s *Service) GetRecommendationsTrends(start time.Time, end time.Time, limit int) ([]nostr.Event, error) {
-	// algo doesn't have a trend logic yet, using the feed for bot as source
-	pubkey, _ := nostr.GetPublicKey(s.config.Bot.SK)
-	feed := s.GetFeed(pubkey, start, end, limit)
+	// fetch trend feed by using an empty pubkey
+	feed := s.GetFeed("", start, end, limit)
 
 	events := make([]nostr.Event, 0, len(feed))
 	for _, entry := range feed {

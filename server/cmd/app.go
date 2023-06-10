@@ -30,6 +30,11 @@ type Application struct {
 	nserver *nostr.NameServer
 }
 
+type ApiResponse struct {
+	Status string      `json:"status"`
+	Data   interface{} `json:"data"`
+}
+
 type response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data"`
@@ -103,41 +108,46 @@ func (app *Application) handleRecommendationsTrends(w http.ResponseWriter, r *ht
 	start, err := time.Parse(time.RFC3339, params.Get("startDateTime"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		doResponse(w, false, "startDateTime must be a valid ISO8601 string")
+		doApiResponse(w, false, "startDateTime must be a valid ISO8601 string")
 		return
 	}
 
 	end, err := time.Parse(time.RFC3339, params.Get("endDateTime"))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		doResponse(w, false, "endDateTime must be a valid ISO8601 string")
+		doApiResponse(w, false, "endDateTime must be a valid ISO8601 string")
 		return
 	}
 
-	if end.Before(start) {
+	duration := end.Sub(start)
+	if duration < time.Second || duration > time.Hour*24 {
 		w.WriteHeader(http.StatusBadRequest)
-		doResponse(w, false, "endDateTime must be after startDateTime")
+		doApiResponse(w, false, "startDateTime and endDateTime must have difference between 1 second and 1 day")
 		return
 	}
 
-	limit, err := strconv.Atoi(params.Get("limit"))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		doResponse(w, false, "limit must be a number between 1 and 100")
-		return
-	}
-	if limit < 1 || limit > 100 {
-		w.WriteHeader(http.StatusBadRequest)
-		doResponse(w, false, "limit must be a number between 1 and 100")
-		return
+	limit := 10
+	limitOverride := params.Get("limit")
+	if limitOverride != "" {
+		limit, err := strconv.Atoi(limitOverride)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			doApiResponse(w, false, "limit must be a number between 1 and 100")
+			return
+		}
+		if limit < 1 || limit > 100 {
+			w.WriteHeader(http.StatusBadRequest)
+			doApiResponse(w, false, "limit must be a number between 1 and 100")
+			return
+		}
 	}
 
 	feed, err := app.service.GetRecommendationsTrends(start, end, limit)
 	if err != nil {
-		doResponse(w, false, err.Error())
+		doApiResponse(w, false, err.Error())
 		return
 	}
-	doResponse(w, true, feed)
+	doApiResponse(w, true, feed)
 }
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +218,22 @@ func doResponse(w http.ResponseWriter, success bool, body any) {
 	resp := response{
 		Success: success,
 		Data:    body,
+	}
+
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		log.Error("Failed to encode response body", "body", body, "err", err)
+	}
+}
+
+func doApiResponse(w http.ResponseWriter, success bool, body any) {
+	resp := ApiResponse{
+		Status: "success",
+		Data:   body,
+	}
+
+	if !success {
+		resp.Status = "error"
 	}
 
 	err := json.NewEncoder(w).Encode(resp)
