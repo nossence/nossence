@@ -80,6 +80,7 @@ func (app *Application) Run() {
 
 func (app *Application) listenAndServe() {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/recommendations/trends", app.handleRecommendationsTrends)
 	mux.HandleFunc("/feed", app.handleFeed)
 	mux.HandleFunc("/push", app.handlePush)
 	mux.HandleFunc("/batch", app.handleBatch)
@@ -94,6 +95,49 @@ func (app *Application) listenAndServe() {
 	} else {
 		log.Error("Server error", "err", err)
 	}
+}
+
+func (app *Application) handleRecommendationsTrends(w http.ResponseWriter, r *http.Request) {
+	params := r.URL.Query()
+
+	start, err := time.Parse(time.RFC3339, params.Get("startDateTime"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		doResponse(w, false, "startDateTime must be a valid ISO8601 string")
+		return
+	}
+
+	end, err := time.Parse(time.RFC3339, params.Get("endDateTime"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		doResponse(w, false, "endDateTime must be a valid ISO8601 string")
+		return
+	}
+
+	if end.Before(start) {
+		w.WriteHeader(http.StatusBadRequest)
+		doResponse(w, false, "endDateTime must be after startDateTime")
+		return
+	}
+
+	limit, err := strconv.Atoi(params.Get("limit"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		doResponse(w, false, "limit must be a number between 1 and 100")
+		return
+	}
+	if limit < 1 || limit > 100 {
+		w.WriteHeader(http.StatusBadRequest)
+		doResponse(w, false, "limit must be a number between 1 and 100")
+		return
+	}
+
+	feed, err := app.service.GetRecommendationsTrends(start, end, limit)
+	if err != nil {
+		doResponse(w, false, err.Error())
+		return
+	}
+	doResponse(w, true, feed)
 }
 
 func (app *Application) handleFeed(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +201,7 @@ func (app *Application) handleSubscribe(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		log.Error("failed to prepare initial content", "pubkey", subscriberPub, "err", err)
 	}
-	doResponse(w, true, "subscribed as pubkey " + subscriberPub)
+	doResponse(w, true, "subscribed as pubkey "+subscriberPub)
 }
 
 func doResponse(w http.ResponseWriter, success bool, body any) {
@@ -206,10 +250,10 @@ func initLogger(config *types.Config) {
 		wr = os.Stdout
 	} else {
 		wr = &lumberjack.Logger{
-			Filename:   path,
-			MaxSize:    config.Log.MaxSize, // megabytes
-			MaxAge:     config.Log.MaxAge,  // days
-			Compress:   true,
+			Filename: path,
+			MaxSize:  config.Log.MaxSize, // megabytes
+			MaxAge:   config.Log.MaxAge,  // days
+			Compress: true,
 		}
 	}
 

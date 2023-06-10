@@ -29,6 +29,7 @@ type Service struct {
 }
 
 type IService interface {
+	GetRecommendationsTrends(start time.Time, end time.Time, limit int) ([]nostr.Event, error)
 	GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry
 	ListSubscribers(ctx context.Context, limit, skip int) ([]types.Subscriber, error)
 	GetSubscriber(pubkey string) *types.Subscriber
@@ -64,6 +65,24 @@ func (s *Service) Init() error {
 	s.scheduler.Every(1).Day().At("00:00").Do(s.DailyJob)
 
 	return err
+}
+
+func (s *Service) GetRecommendationsTrends(start time.Time, end time.Time, limit int) ([]nostr.Event, error) {
+	// algo doesn't have a trend logic yet, using the feed for bot as source
+	pubkey, _ := nostr.GetPublicKey(s.config.Bot.SK)
+	feed := s.GetFeed(pubkey, start, end, limit)
+
+	events := make([]nostr.Event, 0, len(feed))
+	for _, entry := range feed {
+		var event nostr.Event
+		err := json.Unmarshal([]byte(entry.Raw), &event)
+		if err != nil {
+			log.Error("Failed to parse raw event", "raw", entry.Raw, "err", err)
+			continue
+		}
+		events = append(events, event)
+	}
+	return events, nil
 }
 
 func (s *Service) GetFeed(subscriberPub string, start time.Time, end time.Time, limit int) []types.FeedEntry {
