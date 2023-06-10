@@ -144,6 +144,7 @@ func (app *Application) handleRecommendationsTrends(w http.ResponseWriter, r *ht
 
 	feed, err := app.service.GetRecommendationsTrends(start, end, limit)
 	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
 		doApiResponse(w, false, err.Error())
 		return
 	}
